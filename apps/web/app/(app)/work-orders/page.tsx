@@ -16,12 +16,15 @@ export default function WorkOrdersPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!profile) return;
     let cancelled = false;
     (async () => {
+      // Everyone sees every created order. A draft is private to whoever started it — including one
+      // Finance sent back, which its Creator needs to reach in order to fix and resubmit.
       const { data, error } = await supabase
         .from('work_orders')
         .select('*, partner:business_partners(*), work_order_lines(qty)')
-        .neq('status', 'draft')
+        .or(`status.neq.draft,created_by.eq.${profile.id}`)
         .order('created_at', { ascending: false });
       if (cancelled) return;
       if (error) { setError(error.message); return; }
@@ -33,7 +36,7 @@ export default function WorkOrdersPage() {
       setRows(mapped);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [profile]);
 
   const filtered = (rows ?? []).filter((r) => {
     if (!q.trim()) return true;
@@ -46,7 +49,7 @@ export default function WorkOrdersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-forest-900">Work Orders</h1>
-          <p className="text-sm text-ink-500">Every Work Order that has been created — a Draft only appears here after it is created (v1.3 §3.4).</p>
+          <p className="text-sm text-ink-500">Every Work Order that has been created. Your own drafts (including any Finance sent back) show here too, only to you.</p>
         </div>
         {(profile?.role === 'creator' || profile?.role === 'md' || profile?.role === 'admin') && (
           <Link href="/work-orders/new" className="rounded-md bg-forest-700 px-4 py-2 text-sm font-bold text-white hover:bg-forest-800">
@@ -88,7 +91,7 @@ export default function WorkOrdersPage() {
               <tr key={r.id} className="border-t border-kraft-100 hover:bg-kraft-50">
                 <td className="px-3 py-2">
                   <Link href={`/work-orders/detail?id=${r.id}`} className="font-mono font-bold text-forest-800 hover:underline">
-                    {r.wo_number}
+                    {r.wo_number ?? 'Draft'}
                   </Link>
                 </td>
                 <td className="px-3 py-2">{r.partner ? `${r.partner.code} — ${r.partner.name}` : '—'}</td>

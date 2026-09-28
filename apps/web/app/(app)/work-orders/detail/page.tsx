@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
@@ -163,6 +164,10 @@ function WorkOrderDetail() {
   if (error) return <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>;
   if (!wo) return <p className="text-sm text-ink-500">Loading…</p>;
 
+  // The Creator edits their own order (every field, incl. vendor, parts and notes) on the full form
+  // until Finance approves it. That form covers everything the MD's quick inline edit does.
+  const ownerCanEditForm = wo.created_by === profile?.id && (wo.status === 'draft' || wo.status === 'pending_finance_approval');
+
   const statusIdx = STATUS_ORDER.indexOf(wo.status as any);
   const orderedTotal = lines.reduce((n, l) => n + l.qty, 0);
   const producedTotal = lines.reduce((n, l) => n + l.produced, 0);
@@ -174,7 +179,7 @@ function WorkOrderDetail() {
       <section className="rounded-lg border border-kraft-200 bg-white">
         <div className="flex items-center justify-between border-b border-kraft-100 px-5 py-3">
           <div>
-            <div className="text-sm font-bold text-forest-900">WORK ORDER <span className="font-mono">{wo.wo_number}</span></div>
+            <div className="text-sm font-bold text-forest-900">WORK ORDER <span className="font-mono">{wo.wo_number ?? "(draft)"}</span></div>
             <div className="text-xs text-ink-500">{partner ? `${partner.code} — ${partner.name}` : '—'} · {location?.label ?? '—'}</div>
           </div>
           <div className="flex items-center gap-2">
@@ -239,7 +244,15 @@ function WorkOrderDetail() {
             </div>
           )}
 
-          {isMd && (
+          {ownerCanEditForm && (
+            <div className="mt-4 flex justify-end">
+              <Link href={`/work-orders/new?id=${wo.id}`} className="btn-primary">
+                {wo.status === 'draft' ? 'Edit & Resubmit' : 'Edit Work Order'}
+              </Link>
+            </div>
+          )}
+
+          {isMd && !ownerCanEditForm && (
             <div className="mt-4 flex justify-end gap-2">
               {!editing ? (
                 <button onClick={startEdit} className="btn-secondary">Edit Work Order</button>

@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import type { BusinessPartner, DeliveryLocation, Part, Category } from '@sgr/types';
+import { useAuth } from '@/lib/auth';
+import type { BusinessPartner, DeliveryLocation, Part, Category, WorkOrder } from '@sgr/types';
 
 interface LineRow {
   key: string;
@@ -13,12 +14,30 @@ interface LineRow {
   customerRef: string;
 }
 
+// One form for both jobs: /work-orders/new starts a blank Work Order; /work-orders/new?id=<uuid> edits
+// one you already created — allowed until Finance approves it (draft, or waiting for Finance).
+// A query param rather than a path segment because this is a static export (see detail/page.tsx).
 export default function NewWorkOrderPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-ink-500">Loading…</p>}>
+      <WorkOrderForm />
+    </Suspense>
+  );
+}
+
+function WorkOrderForm() {
   const router = useRouter();
+  const editId = useSearchParams().get('id');
+  const { profile } = useAuth();
+  const [editing, setEditing] = useState<WorkOrder | null>(null);
+  const [rejection, setRejection] = useState('');
+  const [editBlocked, setEditBlocked] = useState('');
+  const [refReady, setRefReady] = useState(false);
 
   const [partners, setPartners] = useState<BusinessPartner[]>([]);
   const [locations, setLocations] = useState<DeliveryLocation[]>([]);
   const [parts, setParts] = useState<Part[]>([]);
+  const allPartsRef = useRef<Part[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
 
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -52,19 +71,64 @@ export default function NewWorkOrderPage() {
   useEffect(() => {
     (async () => {
       const [{ data: p }, { data: l }, { data: parts }, { data: cats }] = await Promise.all([
-        supabase.from('business_partners').select('*').eq('is_active', true).order('name'),
-        supabase.from('delivery_locations').select('*').eq('is_active', true),
-        supabase.from('parts').select('*').eq('is_active', true).order('part_no'),
+        supabase.from('business_partners').select('*').order('name'),
+        supabase.from('delivery_locations').select('*'),
+        supabase.from('parts').select('*').order('part_no'),
         supabase.from('categories').select('*'),
       ]);
       setPartners(p ?? []);
       setLocations(l ?? []);
       setParts(parts ?? []);
+      allPartsRef.current = parts ?? [];
       setCategories(cats ?? []);
+      setRefReady(true);
     })();
   }, []);
 
-  const partnerLocations = useMemo(() => locations.filter((l) => l.partner_id === partnerId), [locations, partnerId]);
+  // Editing an existing order: load it once the reference data is in.
+  useEffect(() => {
+    if (!editId || !refReady || !profile) return;
+    (async () => {
+      const [{ data: wo }, { data: ls }, { data: ns }, { data: rej }] = await Promise.all([
+        supabase.from('work_orders').select('*').eq('id', editId).maybeSingle(),
+        supabase.from('work_order_lines').select('*').eq('work_order_id', editId).order('line_no'),
+        supabase.from('work_order_notes').select('*').eq('work_order_id', editId).order('position'),
+        supabase.from('finance_approvals').select('*').eq('work_order_id', editId).eq('action', 'rejected').order('created_at', { ascending: false }).limit(1),
+      ]);
+      if (!wo) { setEditBlocked('Work order not found.'); return; }
+      if (wo.created_by !== profile.id) { setEditBlocked('Only the person who created this Work Order can edit it here.'); return; }
+      if (wo.status !== 'draft' && wo.status !== 'pending_finance_approval') {
+        setEditBlocked('Finance has already approved this Work Order, so it can no longer be edited here. Ask the MD.');
+        return;
+      }
+      setEditing(wo);
+      setDraftId(wo.id);
+      setPartnerId(wo.partner_id ?? '');
+      setLocationId(wo.delivery_location_id ?? '');
+      setWoDate(wo.wo_date);
+      setDeliveryDate(wo.delivery_date ?? '');
+      setDocRef(wo.doc_ref ?? '');
+      setTestCert(wo.test_cert_required);
+      setInspectionReport(wo.inspection_report_required);
+      setPackingRequired(wo.packing_required);
+      setBundleQty(wo.units_per_bundle != null ? String(wo.units_per_bundle) : '');
+      setPalletHeight(wo.pallet_height_in != null ? String(wo.pallet_height_in) : '');
+      setSeparateVehicle(wo.separate_vehicle_required);
+      setTransportNotes(wo.transport_notes ?? '');
+      setNotes((ns ?? []).map((n) => n.note));
+      const partById = new Map(allPartsRef.current.map((p) => [p.id, p]));
+      setLines((ls ?? []).flatMap((l) => {
+        const part = l.part_id ? partById.get(l.part_id) : undefined;
+        return part ? [{ key: l.id, part, qty: Number(l.qty), remarks: l.remarks ?? '', customerRef: l.customer_ref ?? '' }] : [];
+      }));
+      if (wo.status === 'draft' && rej && rej[0]?.comments) setRejection(rej[0].comments);
+    })();
+  }, [editId, refReady, profile]);
+
+  const partnerLocations = useMemo(
+    () => locations.filter((l) => l.partner_id === partnerId && (l.is_active || l.id === locationId)),
+    [locations, partnerId, locationId],
+  );
   const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? '';
 
   // A note that's been typed but not yet added with Enter/"+ Add note" still counts when saving.
@@ -131,6 +195,12 @@ export default function NewWorkOrderPage() {
     router.push(`/work-orders/detail?id=${wo.id}`);
   }
 
+  // Editing an order that is already waiting for Finance: save, then go back to it (it stays pending).
+  async function saveChanges() {
+    const id = await saveDraft();
+    if (id) router.push(`/work-orders/detail?id=${id}`);
+  }
+
   const totalQty = lines.reduce((n, l) => n + l.qty, 0);
   const totalWeight = lines.reduce((n, l) => n + l.qty * l.part.standard_weight_kg, 0);
   const totalValue = lines.reduce((n, l) => n + l.qty * l.part.price, 0);
@@ -139,14 +209,26 @@ export default function NewWorkOrderPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-bold text-forest-900">New Work Order</h1>
+        <h1 className="text-xl font-bold text-forest-900">
+          {editing ? <>Edit Work Order {editing.wo_number && <span className="font-mono">{editing.wo_number}</span>}</> : 'New Work Order'}
+        </h1>
         <p className="text-sm text-ink-500">
-          Fill in the details, then add the first line item. Saved as a Draft as you go; the Work Order number is
-          assigned when you press Create (v1.3 §3.4) — it then goes to Finance for approval before
-          production can start.
+          {editing?.status === 'pending_finance_approval'
+            ? 'This order is waiting for Finance. You can change anything until it is approved; saving keeps it in the Finance queue.'
+            : editing
+              ? 'Fix the details, then resubmit it for Finance approval.'
+              : `Fill in the details, then add the first line item. Saved as a Draft as you go; the Work Order number is
+                 assigned when you press Create (v1.3 §3.4) — it then goes to Finance for approval before
+                 production can start.`}
         </p>
       </div>
 
+      {editBlocked && <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{editBlocked}</div>}
+      {rejection && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <b>Finance sent this back:</b> {rejection}
+        </div>
+      )}
       {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{error}</div>}
 
       <section className="rounded-lg border border-kraft-200 bg-white">
@@ -164,7 +246,7 @@ export default function NewWorkOrderPage() {
           <Field label="Business Partner (Vendor) *">
             <select value={partnerId} onChange={(e) => { setPartnerId(e.target.value); setLocationId(''); }} className="input">
               <option value="">Select vendor…</option>
-              {partners.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
+              {partners.filter((p) => p.is_active || p.id === partnerId).map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
             </select>
           </Field>
           <Field label="Delivery Location *">
@@ -226,7 +308,7 @@ export default function NewWorkOrderPage() {
                 className="input"
               >
                 <option value="">Select part #…</option>
-                {parts.map((p) => <option key={p.id} value={p.id}>{p.part_no} — {p.description}</option>)}
+                {parts.filter((p) => p.is_active).map((p) => <option key={p.id} value={p.id}>{p.part_no} — {p.description}</option>)}
               </select>
             </div>
             <div className="w-24">
@@ -316,12 +398,20 @@ export default function NewWorkOrderPage() {
 
       <div className="flex items-center justify-between pb-8">
         <div className="flex items-center gap-3">
-          <button onClick={saveDraft} disabled={saving} className="btn-secondary">{saving ? 'Saving…' : 'Save Draft'}</button>
+          {editing?.status === 'pending_finance_approval' ? (
+            <button onClick={() => router.push(`/work-orders/detail?id=${editing.id}`)} className="btn-secondary">Cancel</button>
+          ) : (
+            <button onClick={saveDraft} disabled={saving || !!editBlocked} className="btn-secondary">{saving ? 'Saving…' : 'Save Draft'}</button>
+          )}
           {message && <span className="text-xs font-bold text-emerald-600">✓ {message}</span>}
         </div>
-        <button onClick={createWorkOrder} disabled={creating} className="btn-primary">
-          {creating ? 'Creating…' : 'Create Work Order'}
-        </button>
+        {editing?.status === 'pending_finance_approval' ? (
+          <button onClick={saveChanges} disabled={saving || !!editBlocked} className="btn-primary">{saving ? 'Saving…' : 'Save Changes'}</button>
+        ) : (
+          <button onClick={createWorkOrder} disabled={creating || !!editBlocked} className="btn-primary">
+            {creating ? 'Submitting…' : editing ? 'Resubmit for Finance Approval' : 'Create Work Order'}
+          </button>
+        )}
       </div>
     </div>
   );

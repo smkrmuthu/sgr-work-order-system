@@ -27,7 +27,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -376,5 +376,85 @@ ok(mdNote.affectedRows === 1, 'MD can still add a note after creation');
 let anonNotes = null;
 try { await asAnon(() => db.query(`select * from app.work_order_notes`)); } catch (e) { anonNotes = e.message; }
 ok(/permission denied/.test(anonNotes || ''), 'anon cannot read notes: ' + anonNotes);
+
+// Guard against the mistake 007 fixed: every table in `app` must have RLS switched on.
+const noRls = (await db.query(`select relname from pg_class where relnamespace='app'::regnamespace and relkind='r' and not relrowsecurity order by 1`)).rows.map((r) => r.relname);
+ok(noRls.length === 0, 'every table in app has row-level security enabled' + (noRls.length ? ' — MISSING: ' + noRls.join(', ') : ''));
+
+// ---------------------------------------------------------------- Creator edits until Finance approves (007)
+const partner2 = (await as(CREATOR, () => db.query(`select id from app.business_partners where code='XYX01'`))).rows[0];
+const loc2 = (await as(CREATOR, () => db.query(`select id from app.delivery_locations where partner_id=$1 limit 1`, [partner2.id]))).rows[0];
+const editId = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-01-10', doc_ref: 'EDIT-1',
+  lines: [{ part_id: p1.id, qty: 10 }], notes: ['first note'],
+})]))).rows[0].id;
+const editCreated = (await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [editId]))).rows[0];
+ok(editCreated.status === 'pending_finance_approval', 'setup: order is waiting for Finance');
+
+// 1. The Creator edits EVERYTHING on their own waiting order: vendor, location, lines (part #, qty), notes.
+await as(CREATOR, () => db.query(`select app.save_draft($1, $2)`, [editId, JSON.stringify({
+  partner_id: partner2.id, delivery_location_id: loc2.id, delivery_date: '2027-02-02', doc_ref: 'EDIT-2',
+  lines: [{ part_id: p2.id, qty: 77, customer_ref: 'NEW-REF' }, { part_id: p1.id, qty: 3 }],
+  notes: ['changed note', 'second note'],
+})]));
+const afterEdit = (await as(CREATOR, () => db.query(`select status, wo_number, revision, partner_id, doc_ref from app.work_orders where id=$1`, [editId]))).rows[0];
+ok(afterEdit.status === 'pending_finance_approval' && afterEdit.wo_number === editCreated.wo_number && afterEdit.revision === 0
+   && afterEdit.partner_id === partner2.id && afterEdit.doc_ref === 'EDIT-2',
+   'Creator edited the vendor and header of a waiting order; status, number and revision unchanged: ' + JSON.stringify(afterEdit));
+const editLines = (await as(CREATOR, () => db.query(`select part_no_snapshot, qty, customer_ref from app.work_order_lines where work_order_id=$1 order by line_no`, [editId]))).rows;
+ok(editLines.length === 2 && editLines[0].part_no_snapshot === 'CB1200450' && Number(editLines[0].qty) === 77 && editLines[0].customer_ref === 'NEW-REF',
+   'Creator changed the part #s, quantities and customer ref: ' + JSON.stringify(editLines));
+const editNotes = (await as(CREATOR, () => db.query(`select note from app.work_order_notes where work_order_id=$1 order by position`, [editId]))).rows.map((r) => r.note);
+ok(JSON.stringify(editNotes) === JSON.stringify(['changed note', 'second note']), 'Creator changed the notes: ' + JSON.stringify(editNotes));
+const editRevs = (await as(CREATOR, () => db.query(`select count(*) c from app.work_order_revisions where work_order_id=$1`, [editId]))).rows[0].c;
+ok(Number(editRevs) === 0, 'edits before approval do not open a revision');
+
+// 2. Not anyone else's order
+let otherEdit = null;
+try { await as(OTHER_CREATOR, () => db.query(`select app.save_draft($1, $2)`, [editId, JSON.stringify({ partner_id: partnerRow.id, lines: [{ part_id: p1.id, qty: 1 }] })])); }
+catch (e) { otherEdit = e.message; }
+const unchangedByOther = (await as(CREATOR, () => db.query(`select doc_ref from app.work_orders where id=$1`, [editId]))).rows[0].doc_ref;
+ok(!!otherEdit && unchangedByOther === 'EDIT-2', "another Creator cannot edit someone else's waiting order (" + otherEdit + ')');
+
+// 3. The loophole: a Creator (or anyone) setting status / number / revision directly
+let skipFinance = null;
+try { await as(CREATOR, () => db.query(`update app.work_orders set status='created' where id=$1`, [editId])); } catch (e) { skipFinance = e.message; }
+ok(/only through the app/.test(skipFinance || ''), 'a Creator cannot skip Finance by setting the status directly: ' + skipFinance);
+let renumber = null;
+try { await as(CREATOR, () => db.query(`update app.work_orders set wo_number='999/2026-27' where id=$1`, [editId])); } catch (e) { renumber = e.message; }
+ok(/only through the app/.test(renumber || ''), 'a Creator cannot change the Work Order number: ' + renumber);
+let mdSkip = null;
+try { await as(MD, () => db.query(`update app.work_orders set status='created' where id=$1`, [editId])); } catch (e) { mdSkip = e.message; }
+ok(/only through the app/.test(mdSkip || ''), 'not even the MD can bypass Finance by editing the status: ' + mdSkip);
+let plannerDate = null;
+try { await as(CREATOR, () => db.query(`update app.work_orders set expected_completion_date='2027-03-01' where id=$1`, [editId])); } catch (e) { plannerDate = e.message; }
+ok(/Production Planner/.test(plannerDate || ''), 'a Creator cannot set the Expected Completion Date: ' + plannerDate);
+
+// 4. Once Finance approves, the Creator is locked out again — loudly, with nothing changed
+await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [editId]));
+let lockedEdit = null;
+try { await as(CREATOR, () => db.query(`select app.save_draft($1, $2)`, [editId, JSON.stringify({ partner_id: partnerRow.id, lines: [{ part_id: p1.id, qty: 1 }], notes: ['after approval'] })])); }
+catch (e) { lockedEdit = e.message; }
+const lockedState = (await as(CREATOR, () => db.query(`select (select doc_ref from app.work_orders where id=$1) d, (select count(*) from app.work_order_lines where work_order_id=$1) n`, [editId]))).rows[0];
+ok(!!lockedEdit && lockedState.d === 'EDIT-2' && Number(lockedState.n) === 2, 'after Finance approval the Creator can no longer edit (' + lockedEdit + '), nothing changed');
+let lockedHeader = null;
+try { await as(CREATOR, () => db.query(`update app.work_orders set doc_ref='LATE' where id=$1`, [editId])); } catch (e) { lockedHeader = e.message; }
+const lateHeader = (await as(CREATOR, () => db.query(`select doc_ref from app.work_orders where id=$1`, [editId]))).rows[0].doc_ref;
+ok(lateHeader === 'EDIT-2', 'a direct header edit after approval changes nothing');
+await as(MD, () => db.query(`update app.work_orders set doc_ref='MD-EDIT' where id=$1`, [editId]));
+const mdRev = (await as(MD, () => db.query(`select revision from app.work_orders where id=$1`, [editId]))).rows[0].revision;
+ok(mdRev === 1, 'after approval an MD edit still opens a revision: R' + mdRev);
+
+// 5. Rejected by Finance -> back to draft -> the Creator can fix it and resubmit
+const rejId = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-01-10', lines: [{ part_id: p1.id, qty: 5 }],
+})]))).rows[0].id;
+await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [rejId]));
+await as(FINANCE, () => db.query(`select app.reject_work_order($1, 'wrong quantity')`, [rejId]));
+await as(CREATOR, () => db.query(`select app.save_draft($1, $2)`, [rejId, JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-01-10', lines: [{ part_id: p1.id, qty: 6 }],
+})]));
+const fixedQty = (await as(CREATOR, () => db.query(`select qty from app.work_order_lines where work_order_id=$1`, [rejId]))).rows[0].qty;
+ok(Number(fixedQty) === 6, 'a Creator can fix a rejected order and resubmit it');
 
 console.log('\nDone.');

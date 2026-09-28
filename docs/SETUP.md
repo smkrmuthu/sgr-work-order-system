@@ -9,7 +9,7 @@ Project: `https://zuvmolgdmhbgqonzpjcg.supabase.co`
 
 ## 1. Run the migrations
 
-Open the Supabase dashboard → **SQL Editor** → New query, and run these six
+Open the Supabase dashboard → **SQL Editor** → New query, and run these seven
 files **in order**, pasting each one's full contents and clicking Run:
 
 1. `db/migrations/001_schema.sql` — schema, enums, tables
@@ -25,8 +25,12 @@ files **in order**, pasting each one's full contents and clicking Run:
 6. `db/migrations/006_notes_and_customer_ref.sql` — a Customer Reference on
    each Work Order line, and Additional Notes stored as separate points
    (one row each, with room for an icon later)
+7. `db/migrations/007_creator_edit_before_approval.sql` — the Creator can edit
+   their own Work Order until Finance approves it, **and a security fix**:
+   row-level security was never switched on for the line-items table, so
+   any signed-in user could change any order's quantities and prices
 
-All six are safe to re-run (`create table if not exists`, `drop policy if
+All seven are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
 
 ## 2. Expose the `app` schema to the API

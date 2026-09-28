@@ -97,6 +97,9 @@ create policy work_orders_update on app.work_orders for update to authenticated
 
 -- No delete policy anywhere on work_orders: deactivate/cancel via status, never hard-delete (§8 principle).
 
+-- (This line was missing originally, so the policies below were defined but never enforced — see 007.)
+alter table app.work_order_lines enable row level security;
+
 drop policy if exists work_order_lines_select on app.work_order_lines;
 create policy work_order_lines_select on app.work_order_lines for select to authenticated using (true);
 
