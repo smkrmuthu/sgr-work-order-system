@@ -22,13 +22,13 @@ const ROLE_LABEL: Record<UserRole, string> = {
 // screens is independently enforced by RLS (db/migrations/002_rls.sql), never by this list alone.
 const NAV: { href: string; label: string; roles: UserRole[] }[] = [
   { href: '/work-orders', label: 'Work Orders', roles: ['creator', 'md', 'planner', 'qc', 'finance', 'admin'] },
-  { href: '/item-master', label: 'Item Master', roles: ['creator', 'md', 'admin'] },
   { href: '/finance', label: 'Finance Approval', roles: ['finance', 'md', 'admin'] },
   { href: '/planner', label: 'Production Planner', roles: ['planner', 'md', 'admin'] },
   { href: '/qc', label: 'QC', roles: ['qc', 'md', 'admin'] },
   { href: '/finished-goods', label: 'Finished Goods', roles: ['md', 'admin', 'finance', 'planner', 'qc'] },
   { href: '/dispatch', label: 'Ready for Dispatch', roles: ['md', 'admin', 'finance', 'planner', 'qc'] },
   { href: '/users', label: 'Users', roles: ['md', 'admin'] },
+  { href: '/item-master', label: 'Item Master', roles: ['creator', 'md', 'admin'] },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
