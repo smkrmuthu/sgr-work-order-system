@@ -19,6 +19,12 @@ await db.exec(`
     $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   create function auth.jwt() returns jsonb language sql stable as
     $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
+  create schema storage;
+  create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
+  create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner uuid);
+  alter table storage.objects enable row level security;
+  grant usage on schema storage to anon, authenticated;
+  grant select, insert on storage.objects to authenticated;
   grant usage on schema auth to anon, authenticated;
   grant usage on schema public to anon, authenticated;
   alter default privileges in schema public grant all on tables to anon, authenticated;
@@ -27,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -463,5 +469,37 @@ await as(CREATOR, () => db.query(`select app.save_draft($1, $2)`, [rejId, JSON.s
 })]));
 const fixedQty = (await as(CREATOR, () => db.query(`select qty from app.work_order_lines where work_order_id=$1`, [rejId]))).rows[0].qty;
 ok(Number(fixedQty) === 6, 'a Creator can fix a rejected order and resubmit it');
+
+// ---------------------------------------------------------------- QC file uploads (009)
+const bucket = (await db.query(`select public, file_size_limit, allowed_mime_types from storage.buckets where id='qc-attachments'`)).rows[0];
+ok(bucket && bucket.public === false && Number(bucket.file_size_limit) === 10485760 && bucket.allowed_mime_types.includes('application/pdf'),
+   'the QC files bucket is private, 10 MB, with a file-type allow-list');
+
+const inspRow = (await as(CREATOR, () => db.query(`select id, work_order_line_id from app.qc_inspections limit 1`))).rows[0];
+const inspWo = (await as(CREATOR, () => db.query(`select work_order_id from app.work_order_lines where id=$1`, [inspRow.work_order_line_id]))).rows[0].work_order_id;
+
+const uploadOk = await as(QC, () => db.query(`insert into storage.objects (bucket_id, name) values ('qc-attachments', $1)`, [`${inspWo}/${inspRow.id}/report.pdf`]));
+ok(uploadOk.affectedRows === 1, 'QC can upload a file to the QC bucket');
+let plannerUpload = null;
+try { await as(PLANNER, () => db.query(`insert into storage.objects (bucket_id, name) values ('qc-attachments', 'x/y.pdf')`)); } catch (e) { plannerUpload = e.message; }
+ok(!!plannerUpload, 'a Planner cannot upload to the QC bucket (' + plannerUpload + ')');
+const readByCreator = await as(CREATOR, () => db.query(`select 1 from storage.objects where bucket_id='qc-attachments'`));
+ok(readByCreator.rows.length === 1, 'any signed-in user can read the QC files list');
+let anonFiles = null; let anonFileRows = 0;
+try { anonFileRows = (await asAnon(() => db.query(`select 1 from storage.objects`))).rows.length; } catch (e) { anonFiles = e.message; }
+ok(anonFileRows === 0, 'a signed-out visitor sees no QC files' + (anonFiles ? ' (' + anonFiles + ')' : ''));
+
+const att = { wo: inspWo, insp: inspRow.id };
+await as(QC, () => db.query(`insert into app.attachments (work_order_id, qc_inspection_id, file_name, storage_key, content_type, uploaded_by)
+                            values ($1,$2,'report.pdf',$3,'application/pdf',$4)`, [att.wo, att.insp, `${att.wo}/${att.insp}/report.pdf`, QC]));
+ok((await as(CREATOR, () => db.query(`select file_name from app.attachments where qc_inspection_id=$1`, [att.insp]))).rows[0].file_name === 'report.pdf',
+   'QC attached the file to the inspection, visible to others');
+let plannerAttach = null;
+try { await as(PLANNER, () => db.query(`insert into app.attachments (work_order_id, qc_inspection_id, file_name, storage_key) values ($1,$2,'x.pdf','k')`, [att.wo, att.insp])); }
+catch (e) { plannerAttach = e.message; }
+ok(!!plannerAttach, 'a Planner cannot attach files to a QC inspection (' + plannerAttach + ')');
+const delAtt = await as(MD, () => db.query(`delete from app.attachments where qc_inspection_id=$1`, [att.insp]));
+const updAtt = await as(MD, () => db.query(`update app.attachments set file_name='renamed' where qc_inspection_id=$1`, [att.insp]));
+ok(delAtt.affectedRows === 0 && updAtt.affectedRows === 0, 'an inspection file cannot be deleted or renamed, even by the MD');
 
 console.log('\nDone.');

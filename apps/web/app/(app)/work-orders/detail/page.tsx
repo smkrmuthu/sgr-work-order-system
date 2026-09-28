@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+import { openQcFile } from '@/lib/qcFiles';
 import { STATUS_LABEL, STATUS_ORDER, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type {
   WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
-  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote,
+  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment,
 } from '@sgr/types';
 
 interface LineWithProgress extends WorkOrderLine {
@@ -44,6 +45,8 @@ function WorkOrderDetail() {
   const [revisions, setRevisions] = useState<WorkOrderRevision[]>([]);
   const [financeApprovals, setFinanceApprovals] = useState<FinanceApproval[]>([]);
   const [notes, setNotes] = useState<WorkOrderNote[]>([]);
+  const [qcFiles, setQcFiles] = useState<Attachment[]>([]);
+  const [fileError, setFileError] = useState('');
   const [invoices, setInvoices] = useState<(Invoice & { lines: InvoiceLine[] })[]>([]);
   const [users, setUsers] = useState<Record<string, AppUser>>({});
   const [error, setError] = useState('');
@@ -68,13 +71,14 @@ function WorkOrderDetail() {
     if (!w) { setError('Work order not found.'); return; }
     setWo(w);
 
-    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: fApprovals }, { data: noteRows }, { data: allUsers }] = await Promise.all([
+    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: fApprovals }, { data: noteRows }, { data: fileRows }, { data: allUsers }] = await Promise.all([
       w.partner_id ? supabase.from('business_partners').select('*').eq('id', w.partner_id).maybeSingle() : Promise.resolve({ data: null }),
       w.delivery_location_id ? supabase.from('delivery_locations').select('*').eq('id', w.delivery_location_id).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('work_order_lines').select('*').eq('work_order_id', id).order('line_no'),
       supabase.from('work_order_revisions').select('*').eq('work_order_id', id).order('revision'),
       supabase.from('finance_approvals').select('*').eq('work_order_id', id).order('created_at'),
       supabase.from('work_order_notes').select('*').eq('work_order_id', id).order('position'),
+      supabase.from('attachments').select('*').eq('work_order_id', id).not('qc_inspection_id', 'is', null).order('uploaded_at'),
       supabase.from('users').select('*'),
     ]);
     setPartner(p ?? null);
@@ -82,6 +86,7 @@ function WorkOrderDetail() {
     setRevisions(revs ?? []);
     setFinanceApprovals(fApprovals ?? []);
     setNotes(noteRows ?? []);
+    setQcFiles(fileRows ?? []);
     setUsers(Object.fromEntries((allUsers ?? []).map((u) => [u.id, u])));
 
     const lineIds = (ls ?? []).map((l) => l.id);
@@ -328,6 +333,33 @@ function WorkOrderDetail() {
           </table>
         </div>
       </section>
+
+      {qcFiles.length > 0 && (
+        <section className="rounded-lg border border-kraft-200 bg-white">
+          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">QC INSPECTION FILES</div>
+          <div className="p-5">
+            {fileError && <p className="mb-2 text-xs text-rose-700">{fileError}</p>}
+            <ul className="flex flex-col gap-1.5">
+              {qcFiles.map((f) => (
+                <li key={f.id} className="flex items-center justify-between rounded-md border border-kraft-200 bg-kraft-50 px-3 py-1.5 text-[13px]">
+                  <span className="min-w-0 truncate">
+                    {f.file_name}
+                    <span className="ml-2 text-[11px] text-ink-500">
+                      {users[f.uploaded_by ?? '']?.email ?? '—'} · {new Date(f.uploaded_at).toLocaleString('en-GB')}
+                    </span>
+                  </span>
+                  <button
+                    onClick={async () => setFileError((await openQcFile(f.storage_key)) ?? '')}
+                    className="ml-3 shrink-0 rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50"
+                  >
+                    Open
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
 
       {notes.length > 0 && (
         <section className="rounded-lg border border-kraft-200 bg-white">

@@ -9,7 +9,7 @@ Project: `https://zuvmolgdmhbgqonzpjcg.supabase.co`
 
 ## 1. Run the migrations
 
-Open the Supabase dashboard → **SQL Editor** → New query, and run these eight
+Open the Supabase dashboard → **SQL Editor** → New query, and run these nine
 files **in order**, pasting each one's full contents and clicking Run:
 
 1. `db/migrations/001_schema.sql` — schema, enums, tables
@@ -32,8 +32,11 @@ files **in order**, pasting each one's full contents and clicking Run:
 8. `db/migrations/008_service_role_grants.sql` — lets the Users function (which
    runs with Supabase's admin key) read the `app` schema; without it the Users
    page says "Only MD or Admin can manage users" even to the MD
+9. `db/migrations/009_qc_files.sql` — file uploads on QC inspections: creates the
+   private `qc-attachments` storage bucket (10 MB per file; images, PDF, Excel,
+   Word, CSV, text) and who may add/read files
 
-All eight are safe to re-run (`create table if not exists`, `drop policy if
+All nine are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
 
 ## 2. Expose the `app` schema to the API

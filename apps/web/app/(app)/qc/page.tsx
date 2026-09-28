@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
+import { QC_ACCEPT, QC_MAX_BYTES, checkQcFile, uploadQcFile } from '@/lib/qcFiles';
 import { STATUS_LABEL } from '@/lib/statusLabels';
 import type { WorkOrder, WorkOrderLine, QcSubmission, QcInspection } from '@sgr/types';
 
@@ -12,6 +14,7 @@ interface LineRow extends WorkOrderLine {
 }
 
 export default function QcPage() {
+  const { profile } = useAuth();
   const [orders, setOrders] = useState<WorkOrder[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [lines, setLines] = useState<LineRow[]>([]);
@@ -20,6 +23,8 @@ export default function QcPage() {
   const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [accepted, setAccepted] = useState('');
   const [comments, setComments] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [warning, setWarning] = useState('');
   const [busy, setBusy] = useState(false);
 
   const selected = orders.find((o) => o.id === selectedId) ?? null;
@@ -54,17 +59,40 @@ export default function QcPage() {
     setInspectingId(l.id);
     setAccepted(String(l.sent - l.approved - l.held));
     setComments('');
+    setFiles([]);
+  }
+
+  function pickFiles(list: FileList | null) {
+    if (!list) return;
+    const chosen = [...files];
+    for (const f of Array.from(list)) {
+      const problem = checkQcFile(f);
+      if (problem) { setError(problem); continue; }
+      if (!chosen.some((c) => c.name === f.name && c.size === f.size)) chosen.push(f);
+    }
+    setFiles(chosen);
   }
 
   async function submitInspection() {
     if (!inspectingId) return;
-    setBusy(true); setError('');
-    const { error } = await supabase.rpc('record_qc_inspection', {
+    setBusy(true); setError(''); setWarning('');
+    const { data: inspectionId, error } = await supabase.rpc('record_qc_inspection', {
       p_work_order_line_id: inspectingId, p_accepted_qty: Number(accepted), p_comments: comments || null,
     });
+    if (error) { setBusy(false); setError(error.message); return; }
+
+    // The inspection is now on record. Files are attached to it one by one; if some fail we say so and
+    // keep the panel's other state — the inspection itself can't be undone, so never pretend it wasn't saved.
+    const woId = lines.find((l) => l.id === inspectingId)?.work_order_id ?? selectedId;
+    const failed: string[] = [];
+    for (const f of files) {
+      const problem = await uploadQcFile(f, { workOrderId: woId, inspectionId: inspectionId as string, uploadedBy: profile?.id ?? null });
+      if (problem) failed.push(`${f.name} (${problem})`);
+    }
     setBusy(false);
-    if (error) { setError(error.message); return; }
+    if (failed.length) setWarning(`Inspection saved, but ${failed.length} file(s) did not upload: ${failed.join('; ')}`);
     setInspectingId(null);
+    setFiles([]);
     loadLines(selectedId); loadOrders();
   }
 
@@ -86,6 +114,7 @@ export default function QcPage() {
         </select>
       </div>
       {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{error}</div>}
+      {warning && <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">{warning}</div>}
       {!selected && <p className="text-sm text-ink-500">Nothing awaiting inspection.</p>}
 
       {selected && (
@@ -130,9 +159,31 @@ export default function QcPage() {
                     <Field label="Comments"><textarea value={comments} onChange={(e) => setComments(e.target.value)} className="input min-h-[40px]" /></Field>
                   </div>
                 </div>
+                <div className="mt-3">
+                  <label className="mb-1 block text-[11px] font-bold text-ink-700">
+                    Attach files <span className="font-normal text-ink-500">(reports, certificates, scans — max {QC_MAX_BYTES / 1048576} MB each)</span>
+                  </label>
+                  <input
+                    type="file"
+                    multiple
+                    accept={QC_ACCEPT}
+                    onChange={(e) => { pickFiles(e.target.files); e.target.value = ''; }}
+                    className="block w-full text-xs text-ink-700 file:mr-3 file:rounded-md file:border file:border-kraft-300 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-ink-900 hover:file:bg-kraft-50"
+                  />
+                  {files.length > 0 && (
+                    <ul className="mt-2 flex flex-col gap-1">
+                      {files.map((f) => (
+                        <li key={f.name + f.size} className="flex items-center justify-between rounded-md border border-kraft-200 bg-white px-2.5 py-1 text-xs">
+                          <span className="truncate">{f.name} <span className="text-ink-300">· {(f.size / 1024).toFixed(0)} KB</span></span>
+                          <button type="button" onClick={() => setFiles((fs) => fs.filter((x) => x !== f))} aria-label={`Remove ${f.name}`} className="ml-2 text-ink-300 hover:text-rose-600">✕</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
                 <div className="mt-3 flex justify-end gap-2">
                   <button onClick={() => setInspectingId(null)} className="btn-secondary">Cancel</button>
-                  <button onClick={submitInspection} disabled={busy} className="btn-primary">{busy ? 'Saving…' : 'Sign Off Inspection'}</button>
+                  <button onClick={submitInspection} disabled={busy} className="btn-primary">{busy ? (files.length ? 'Saving & uploading…' : 'Saving…') : 'Sign Off Inspection'}</button>
                 </div>
               </div>
             )}
