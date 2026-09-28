@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { manageUsers } from '@/lib/manageUsers';
 import type { UserRole } from '@sgr/types';
@@ -29,6 +29,9 @@ export default function UsersPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [resetId, setResetId] = useState<string | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [notice, setNotice] = useState('');
 
   const [showAdd, setShowAdd] = useState(false);
   const [newEmail, setNewEmail] = useState('');
@@ -61,8 +64,18 @@ export default function UsersPage() {
     load();
   }
 
+  async function setPassword(row: Row) {
+    if (resetPassword.length < 8) { setError('The new password must be at least 8 characters.'); return; }
+    setBusyId(row.id); setError(''); setNotice('');
+    const result = await manageUsers({ action: 'update', id: row.id, password: resetPassword });
+    setBusyId(null);
+    if ('error' in result) { setError(result.error); return; }
+    setResetId(null); setResetPassword('');
+    setNotice(`Password changed for ${row.email}. Give them the new password — they can sign in with it straight away.`);
+  }
+
   async function remove(row: Row) {
-    if (!confirm(`Delete ${row.email}? This removes their login entirely.`)) return;
+    if (!confirm(`Delete ${row.email}? This removes their login entirely. (If they have already created or approved anything, deleting isn't possible — untick Active instead.)`)) return;
     setBusyId(row.id); setError('');
     const result = await manageUsers({ action: 'delete', id: row.id });
     setBusyId(null);
@@ -92,6 +105,7 @@ export default function UsersPage() {
       </div>
 
       {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{error}</div>}
+      {notice && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{notice}</div>}
 
       {showAdd && (
         <section className="rounded-lg border border-kraft-200 bg-white p-5">
@@ -128,29 +142,61 @@ export default function UsersPage() {
           <tbody>
             {rows === null && <tr><td colSpan={6} className="px-3 py-8 text-center text-ink-500">Loading…</td></tr>}
             {rows?.map((r) => (
-              <tr key={r.id} className="border-t border-kraft-100">
-                <td className="px-3 py-2 font-mono">{r.email}{r.id === profile?.id && <span className="ml-1 text-ink-300">(you)</span>}</td>
-                <td className="px-3 py-2">{r.full_name || '—'}</td>
-                <td className="px-3 py-2">
-                  <select
-                    value={r.role}
-                    disabled={busyId === r.id}
-                    onChange={(e) => changeRole(r.id, e.target.value as UserRole)}
-                    className="input !py-1"
-                  >
-                    {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{ROLE_LABEL[role]}</option>)}
-                  </select>
-                </td>
-                <td className="px-3 py-2 text-xs text-ink-500">{r.last_sign_in_at ? new Date(r.last_sign_in_at).toLocaleString('en-GB') : 'Never'}</td>
-                <td className="px-3 py-2 text-center">
-                  <input type="checkbox" checked={r.is_active} disabled={busyId === r.id} onChange={() => toggleActive(r)} />
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <button onClick={() => remove(r)} disabled={busyId === r.id || r.id === profile?.id} className="btn-secondary !px-2 !py-1 text-rose-700">
-                    Delete
-                  </button>
-                </td>
-              </tr>
+              <Fragment key={r.id}>
+                <tr className="border-t border-kraft-100">
+                  <td className="px-3 py-2 font-mono">{r.email}{r.id === profile?.id && <span className="ml-1 text-ink-300">(you)</span>}</td>
+                  <td className="px-3 py-2">{r.full_name || '—'}</td>
+                  <td className="px-3 py-2">
+                    <select
+                      value={r.role}
+                      disabled={busyId === r.id}
+                      onChange={(e) => changeRole(r.id, e.target.value as UserRole)}
+                      className="input !py-1"
+                    >
+                      {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{ROLE_LABEL[role]}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-3 py-2 text-xs text-ink-500">{r.last_sign_in_at ? new Date(r.last_sign_in_at).toLocaleString('en-GB') : 'Never'}</td>
+                  <td className="px-3 py-2 text-center">
+                    <input type="checkbox" checked={r.is_active} disabled={busyId === r.id} onChange={() => toggleActive(r)} />
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => { setResetId(resetId === r.id ? null : r.id); setResetPassword(''); setError(''); setNotice(''); }}
+                        disabled={busyId === r.id}
+                        className="btn-secondary !px-2 !py-1"
+                      >
+                        Change password
+                      </button>
+                      <button onClick={() => remove(r)} disabled={busyId === r.id || r.id === profile?.id} className="btn-secondary !px-2 !py-1 text-rose-700">
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {resetId === r.id && (
+                  <tr className="border-t border-kraft-100 bg-kraft-50">
+                    <td colSpan={6} className="px-3 py-3">
+                      <div className="flex items-center gap-2">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={resetPassword}
+                          onChange={(e) => setResetPassword(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') setPassword(r); }}
+                          placeholder={`New password for ${r.email} (min. 8 characters)`}
+                          className="input flex-1"
+                        />
+                        <button onClick={() => setPassword(r)} disabled={busyId === r.id} className="btn-primary !px-3 !py-1.5">
+                          {busyId === r.id ? 'Saving…' : 'Set password'}
+                        </button>
+                        <button onClick={() => setResetId(null)} className="btn-secondary !px-3 !py-1.5">Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>

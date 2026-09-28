@@ -166,7 +166,14 @@ export async function handle(req, admin) {
       return reply(400, { error: `There must always be at least one ${target.role === "md" ? "MD" : "Admin"}.` });
     }
     const { error } = await admin.auth.admin.deleteUser(id);
-    if (error) return reply(400, { error: friendly(error) });
+    if (error) {
+      // Work Orders, approvals, inspections etc. point at the person who did them, so the database refuses
+      // to remove anyone with history. Say what to do instead of showing a raw "Database error".
+      if (/database error|foreign key|violat/i.test(error.message || "")) {
+        return reply(400, { error: "This person already has activity on record (Work Orders, approvals, inspections…), so they can't be deleted. Untick Active instead — that stops them signing in to anything and keeps the history intact." });
+      }
+      return reply(400, { error: friendly(error) });
+    }
     return reply(200, { ok: true });          // the app.users row goes with it (on delete cascade)
   }
 
