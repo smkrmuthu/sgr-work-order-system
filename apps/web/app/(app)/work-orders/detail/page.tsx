@@ -189,6 +189,11 @@ function WorkOrderDetail() {
   // until Finance approves it. That form covers everything the MD's quick inline edit does.
   const ownerCanEditForm = wo.created_by === profile?.id && (wo.status === 'draft' || wo.status === 'pending_finance_approval');
 
+  // QC-approved but not yet invoiced, in units — the same sum the database uses when it creates an invoice.
+  const billedByLine = new Map<string, number>();
+  for (const inv of invoices) for (const il of inv.lines) if (il.work_order_line_id) billedByLine.set(il.work_order_line_id, (billedByLine.get(il.work_order_line_id) ?? 0) + Number(il.qty));
+  const unbilledUnits = lines.reduce((n, l) => n + Math.max(0, l.qcApproved - (billedByLine.get(l.id) ?? 0)), 0);
+
   const statusIdx = STATUS_ORDER.indexOf(wo.status as any);
   const orderedTotal = lines.reduce((n, l) => n + l.qty, 0);
   const producedTotal = lines.reduce((n, l) => n + l.produced, 0);
@@ -426,45 +431,57 @@ function WorkOrderDetail() {
         </div>
       </section>
 
-      {invoices.length > 0 && (
+      {(invoices.length > 0 || isMd) && (
         <section className="rounded-lg border border-kraft-200 bg-white">
           <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">INVOICES</div>
-          <ul className="flex flex-col gap-1.5 p-5">
-            {invoices.map((inv) => (
-              <li key={inv.id} className="flex items-center justify-between rounded-md border border-kraft-200 bg-kraft-50 px-3 py-2 text-[13px]">
-                <span>
-                  <span className="font-mono font-bold">{inv.invoice_number}</span>
-                  <span className="ml-3 text-ink-500">{new Date(inv.invoice_date).toLocaleDateString('en-GB')}</span>
-                  <span className="ml-3 font-mono font-bold">₹{Number(inv.grand_total).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                  <span className={`ml-3 rounded-full border px-2 py-0.5 text-[10px] font-bold ${inv.dispatched_at ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
-                    {inv.dispatched_at ? 'Dispatched' : 'Ready for dispatch'}
-                  </span>
-                </span>
-                <Link href={`/invoice?id=${inv.id}`} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50">View / Print</Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
-      {isMd && (
-        <section className="rounded-lg border border-kraft-200 bg-white">
-          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">INVOICE</div>
-          <div className="p-5">
-            <div className="flex flex-wrap items-end gap-3">
-              <Field label="GST Rate">
-                <select value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="input">
-                  <option value="18">18%</option><option value="12">12%</option><option value="5">5%</option><option value="0">0%</option>
-                </select>
-              </Field>
-              <Field label="Supply Type">
-                <select value={supplyType} onChange={(e) => setSupplyType(e.target.value as any)} className="input">
-                  <option value="intra">Intra-State (CGST+SGST)</option><option value="inter">Inter-State (IGST)</option>
-                </select>
-              </Field>
-              <button onClick={generateInvoice} disabled={generating} className="btn-primary">{generating ? 'Generating…' : 'Generate Invoice'}</button>
+          {invoices.length > 0 && (
+            <ul className="flex flex-col gap-1.5 p-5">
+              {invoices.map((inv) => (
+                <li key={inv.id} className="flex items-center justify-between rounded-md border border-kraft-200 bg-kraft-50 px-3 py-2 text-[13px]">
+                  <span>
+                    <span className="font-mono font-bold">{inv.invoice_number}</span>
+                    <span className="ml-3 text-ink-500">{new Date(inv.invoice_date).toLocaleDateString('en-GB')}</span>
+                    <span className="ml-3 font-mono font-bold">₹{Number(inv.grand_total).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    <span className={`ml-3 rounded-full border px-2 py-0.5 text-[10px] font-bold ${inv.dispatched_at ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
+                      {inv.dispatched_at ? 'Dispatched' : 'Ready for dispatch'}
+                    </span>
+                  </span>
+                  <Link href={`/invoice?id=${inv.id}`} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50">View / Print</Link>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* Creating another invoice: only when QC-approved goods are still unbilled (same rule as Finished Goods). */}
+          {isMd && (
+            <div className={`p-5 ${invoices.length > 0 ? 'border-t border-kraft-100' : ''}`}>
+              {unbilledUnits > 0 ? (
+                <>
+                  <p className="mb-3 text-xs text-ink-700">
+                    <b>{unbilledUnits}</b> QC-approved unit(s) have not been billed yet. This creates one invoice for them.
+                  </p>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <Field label="GST Rate">
+                      <select value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="input">
+                        <option value="18">18%</option><option value="12">12%</option><option value="5">5%</option><option value="0">0%</option>
+                      </select>
+                    </Field>
+                    <Field label="Supply Type">
+                      <select value={supplyType} onChange={(e) => setSupplyType(e.target.value as any)} className="input">
+                        <option value="intra">Intra-State (CGST+SGST)</option><option value="inter">Inter-State (IGST)</option>
+                      </select>
+                    </Field>
+                    <button onClick={generateInvoice} disabled={generating} className="btn-primary">{generating ? 'Generating…' : 'Create Invoice'}</button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-ink-500">
+                  {invoices.length > 0 ? 'Everything QC has approved so far has been invoiced.' : 'Nothing to bill yet — invoices can be created once QC approves goods.'}
+                </p>
+              )}
             </div>
-          </div>
+          )}
         </section>
       )}
     </div>
