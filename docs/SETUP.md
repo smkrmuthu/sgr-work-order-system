@@ -26,9 +26,27 @@ exists` + recreate, etc.) if you need to reapply one after a fix.
 ## 2. Expose the `app` schema to the API
 
 By default PostgREST (Supabase's auto-REST-API) only serves `public`.
-Go to **Project Settings → Data API → Exposed schemas** and add `app` to
-the list, then save. Without this step every request from the web app will
-404.
+Go to **Integrations → Data API → Settings** and do all three of these,
+then Save (without them, requests from the web app 404 or return nothing):
+
+1. **Exposed schemas** — add `app`.
+2. **Exposed tables** — turn on **every** table under `app` (all of them;
+   exposing the schema alone does not expose its tables).
+3. **Exposed functions** — turn on only these under `app`:
+   - the 9 the web app calls directly: `save_draft`, `create_work_order`,
+     `approve_work_order`, `reject_work_order`, `record_production`,
+     `send_line_to_qc`, `record_qc_inspection`, `reopen_held`,
+     `generate_invoice`
+   - 3 that RLS/`reopen_held` run as the signed-in user, so they need
+     execute rights: `current_role`, `current_role_in`,
+     `recompute_work_order_status`
+
+   Leave the rest **off** — `next_wo_number` in particular (anyone who
+   could call it directly could burn Work Order numbers, leaving gaps),
+   plus the trigger functions (`handle_new_user`, `enforce_work_order_edit`,
+   `log_status_change`, `recompute_status_from_output_line`,
+   `recompute_status_from_qc`) and `fiscal_year_label`, which only ever run
+   inside the database.
 
 ## 3. Create logins for the 6 roles
 
