@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import logo from '@/assets/sgr-logo.png';
 import type { UserRole } from '@sgr/types';
 
 const ROLE_LABEL: Record<UserRole, string> = {
@@ -63,8 +65,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <header className="bg-forest-900 text-white">
         <div className="mx-auto flex h-[60px] max-w-6xl items-center justify-between gap-5 px-7">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-forest-500 bg-forest-700 font-mono text-xs font-bold">
-              SGR
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white">
+              <Image src={logo} alt="SGR" width={57} height={60} className="h-7 w-auto" priority />
             </div>
             <div>
               <div className="text-sm font-bold">

@@ -122,3 +122,6 @@ revoke execute on function app.mark_invoice_dispatched(uuid) from public, anon;
 grant execute on function app.mark_invoice_dispatched(uuid) to authenticated;
 grant execute on function app.generate_invoice(uuid, numeric, app.supply_type) to service_role;
 grant execute on function app.mark_invoice_dispatched(uuid) to service_role;
+
+-- Make the API pick up the new column and function straight away.
+notify pgrst, 'reload schema';

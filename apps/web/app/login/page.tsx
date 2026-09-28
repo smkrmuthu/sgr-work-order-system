@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import logo from './sgr-logo.png'; // imported (not /public) so the GitHub Pages basePath is applied automatically
+import logo from '@/assets/sgr-logo.png'; // imported (not /public) so the GitHub Pages basePath is applied automatically
 
 const STEPS = ['Draft', 'Finance approval', 'Production', 'Quality check', 'Dispatch'];
 
