@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -213,8 +213,8 @@ const cdc = await as(CREATOR, () => db.query(`select from_date, to_date from app
 ok(cdc.rows.length === 1, 'completion_date_changes logged prior + new date');
 
 // MD edits final_price and delivery_date -> new revision
-await as(MD, () => db.query(`update app.work_order_lines set final_price=99.99 where id=$1`, [lineIds[0].id]));
-await as(MD, () => db.query(`update app.work_orders set delivery_date='2026-10-20' where id=$1`, [draftId]));
+await as(MD, () => db.query(`select app.update_work_order($1, $2)`, [draftId, JSON.stringify({
+  delivery_date: '2026-10-20', lines: [{ id: lineIds[0].id, final_price: 99.99 }] })]));
 const revised = (await as(CREATOR, () => db.query(`select revision from app.work_orders where id=$1`, [draftId]))).rows[0];
 ok(revised.revision === 1, 'MD editing a business field bumped revision to 1: got ' + revised.revision);
 const revLog = await as(CREATOR, () => db.query(`select revision, changed_by from app.work_order_revisions where work_order_id=$1`, [draftId]));
@@ -515,6 +515,51 @@ ok(partialStatus !== 'completed', 'a partly billed order (line 2 never produced)
 let editInvoice = null;
 const editRes = await as(MD, () => db.query(`update app.invoices set grand_total = 1 where id=$1`, [inv3Id]));
 ok(editRes.affectedRows === 0, 'an invoice cannot be edited directly, even by the MD');
+
+// ---------------------------------------------------------------- MD approves too; one MD edit = one revision (011)
+const mdPendingId = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-03-01', lines: [{ part_id: p1.id, qty: 20 }] })]))).rows[0].id;
+await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [mdPendingId]));
+const mdApproved = (await as(MD, () => db.query(`select * from app.approve_work_order($1)`, [mdPendingId]))).rows[0];
+ok(mdApproved.status === 'created', 'the MD can approve a Work Order too');
+const mdLog = (await as(CREATOR, () => db.query(`select actor from app.finance_approvals where work_order_id=$1`, [mdPendingId]))).rows[0];
+ok(mdLog.actor === MD, 'the approval is recorded against the MD');
+let plannerApprove = null;
+const plannerPending = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-03-01', lines: [{ part_id: p1.id, qty: 2 }] })]))).rows[0].id;
+await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [plannerPending]));
+try { await as(PLANNER, () => db.query(`select app.approve_work_order($1)`, [plannerPending])); } catch (e) { plannerApprove = e.message; }
+ok(/Only Finance or the MD/.test(plannerApprove || ''), 'Planner/QC/Creator still cannot approve: ' + plannerApprove);
+
+// A quantity-only edit used to open no revision at all.
+const mdLine = (await as(CREATOR, () => db.query(`select id from app.work_order_lines where work_order_id=$1`, [mdPendingId]))).rows[0].id;
+const revBefore = (await as(MD, () => db.query(`select revision from app.work_orders where id=$1`, [mdPendingId]))).rows[0].revision;
+const revAfter = (await as(MD, () => db.query(`select app.update_work_order($1, $2) as r`, [mdPendingId, JSON.stringify({ lines: [{ id: mdLine, qty: 700 }] })]))).rows[0].r;
+ok(revBefore === 0 && revAfter === 1, 'a quantity-only edit by the MD opens revision R1: R' + revBefore + ' -> R' + revAfter);
+const revRow = (await as(CREATOR, () => db.query(`select revision, change_summary, snapshot from app.work_order_revisions where work_order_id=$1`, [mdPendingId]))).rows[0];
+ok(revRow.revision === 0 && /qty 20\.00 -> 700/.test(revRow.change_summary) && Number(revRow.snapshot.lines[0].qty) === 20,
+   'the revision keeps the order as it was (qty 20) and says what changed: ' + revRow.change_summary);
+
+// Header + several lines in one save = exactly one revision.
+const multi = (await as(MD, () => db.query(`select app.update_work_order($1, $2) as r`, [mdPendingId, JSON.stringify({
+  delivery_date: '2027-04-01', doc_ref: 'MD-DOC', lines: [{ id: mdLine, qty: 650, final_price: 55 }] })]))).rows[0].r;
+ok(multi === 2, 'header + line changes in one save open exactly one new revision: R' + multi);
+const noop = (await as(MD, () => db.query(`select app.update_work_order($1, $2) as r`, [mdPendingId, JSON.stringify({ lines: [{ id: mdLine, qty: 650 }] })]))).rows[0].r;
+ok(noop === 2, 'saving with nothing changed opens no revision');
+
+// Never below what is produced.
+await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
+  work_order_id: mdPendingId, shift_id: shiftMorningId, labour_count: 3, lines: [{ work_order_line_id: mdLine, qty: 100, actual_weight_kg: 1 }] })]));
+let belowMade = null;
+try { await as(MD, () => db.query(`select app.update_work_order($1, $2)`, [mdPendingId, JSON.stringify({ lines: [{ id: mdLine, qty: 50 }] })])); } catch (e) { belowMade = e.message; }
+ok(/already produced or billed/.test(belowMade || ''), 'quantity cannot be cut below what is already produced: ' + belowMade);
+
+// Only the MD/Admin, and no side door around the revision.
+let creatorEditsReleased = null;
+try { await as(CREATOR, () => db.query(`select app.update_work_order($1, $2)`, [mdPendingId, JSON.stringify({ doc_ref: 'x' })])); } catch (e) { creatorEditsReleased = e.message; }
+ok(/Only the MD/.test(creatorEditsReleased || ''), 'only the MD can edit a released order: ' + creatorEditsReleased);
+const sideDoor = await as(MD, () => db.query(`update app.work_order_lines set qty = 1 where id = $1`, [mdLine]));
+ok(sideDoor.affectedRows === 0, 'the MD cannot change a released order\'s line directly, bypassing the revision');
 
 // ---------------------------------------------------------------- QC file uploads (009)
 const bucket = (await db.query(`select public, file_size_limit, allowed_mime_types from storage.buckets where id='qc-attachments'`)).rows[0];

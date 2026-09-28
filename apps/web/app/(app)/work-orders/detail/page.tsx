@@ -136,20 +136,20 @@ function WorkOrderDetail() {
   async function saveEdit() {
     if (!wo) return;
     setSaving(true); setError('');
-    const { error: e1 } = await supabase.from('work_orders').update({
-      delivery_date: deliveryDate || null, doc_ref: docRef || null,
-    }).eq('id', wo.id);
-    if (e1) { setSaving(false); setError(e1.message); return; }
-
-    for (const l of lines) {
-      const edit = lineEdits[l.id];
-      if (!edit) continue;
-      const qty = Number(edit.qty), price = Number(edit.final_price);
-      if (qty === l.qty && price === l.final_price) continue;
-      const { error: e2 } = await supabase.from('work_order_lines').update({ qty, final_price: price }).eq('id', l.id);
-      if (e2) { setSaving(false); setError(e2.message); return; }
-    }
+    // Only the lines that actually changed. One call does header + lines together, so a save is exactly one
+    // revision (and none if nothing changed) — see app.update_work_order in db/migrations/011.
+    const changedLines = lines.flatMap((l) => {
+      const e = lineEdits[l.id];
+      if (!e) return [];
+      const qty = Number(e.qty), final_price = Number(e.final_price);
+      return qty !== l.qty || final_price !== l.final_price ? [{ id: l.id, qty, final_price }] : [];
+    });
+    const { error: e1 } = await supabase.rpc('update_work_order', {
+      p_work_order_id: wo.id,
+      p: { delivery_date: deliveryDate || null, doc_ref: docRef || null, lines: changedLines },
+    });
     setSaving(false);
+    if (e1) { setError(e1.message); return; }
     setEditing(false);
     load();
   }

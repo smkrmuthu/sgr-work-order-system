@@ -9,7 +9,7 @@ Project: `https://zuvmolgdmhbgqonzpjcg.supabase.co`
 
 ## 1. Run the migrations
 
-Open the Supabase dashboard → **SQL Editor** → New query, and run these ten
+Open the Supabase dashboard → **SQL Editor** → New query, and run these eleven
 files **in order**, pasting each one's full contents and clicking Run:
 
 1. `db/migrations/001_schema.sql` — schema, enums, tables
@@ -40,8 +40,12 @@ files **in order**, pasting each one's full contents and clicking Run:
     double-billing), and an invoice can be marked dispatched. Adds one new
     function, `mark_invoice_dispatched` — if your Data API has per-function
     toggles, switch it on (Integrations → Data API → Exposed functions)
+11. `db/migrations/011_md_approve_and_revisions.sql` — the MD can approve/reject like
+    Finance (the database previously refused it), and every MD edit of a released
+    order is exactly one revision (a quantity-only change used to open none). Adds
+    `update_work_order` — switch it on under Exposed functions too
 
-All ten are safe to re-run (`create table if not exists`, `drop policy if
+All eleven are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
 
 ## 2. Expose the `app` schema to the API
