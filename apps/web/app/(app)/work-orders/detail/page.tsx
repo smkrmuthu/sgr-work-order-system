@@ -9,7 +9,7 @@ import { openQcFile } from '@/lib/qcFiles';
 import { STATUS_LABEL, STATUS_ORDER, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type {
   WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
-  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment,
+  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment, StatusHistoryEntry,
 } from '@sgr/types';
 
 interface LineWithProgress extends WorkOrderLine {
@@ -46,6 +46,7 @@ function WorkOrderDetail() {
   const [financeApprovals, setFinanceApprovals] = useState<FinanceApproval[]>([]);
   const [notes, setNotes] = useState<WorkOrderNote[]>([]);
   const [qcFiles, setQcFiles] = useState<Attachment[]>([]);
+  const [history, setHistory] = useState<StatusHistoryEntry[]>([]);
   const [fileError, setFileError] = useState('');
   const [invoices, setInvoices] = useState<(Invoice & { lines: InvoiceLine[] })[]>([]);
   const [users, setUsers] = useState<Record<string, AppUser>>({});
@@ -71,7 +72,7 @@ function WorkOrderDetail() {
     if (!w) { setError('Work order not found.'); return; }
     setWo(w);
 
-    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: fApprovals }, { data: noteRows }, { data: fileRows }, { data: allUsers }] = await Promise.all([
+    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: fApprovals }, { data: noteRows }, { data: fileRows }, { data: historyRows }, { data: allUsers }] = await Promise.all([
       w.partner_id ? supabase.from('business_partners').select('*').eq('id', w.partner_id).maybeSingle() : Promise.resolve({ data: null }),
       w.delivery_location_id ? supabase.from('delivery_locations').select('*').eq('id', w.delivery_location_id).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('work_order_lines').select('*').eq('work_order_id', id).order('line_no'),
@@ -79,6 +80,7 @@ function WorkOrderDetail() {
       supabase.from('finance_approvals').select('*').eq('work_order_id', id).order('created_at'),
       supabase.from('work_order_notes').select('*').eq('work_order_id', id).order('position'),
       supabase.from('attachments').select('*').eq('work_order_id', id).not('qc_inspection_id', 'is', null).order('uploaded_at'),
+      supabase.from('status_history').select('*').eq('work_order_id', id).order('changed_at'),
       supabase.from('users').select('*'),
     ]);
     setPartner(p ?? null);
@@ -87,6 +89,7 @@ function WorkOrderDetail() {
     setFinanceApprovals(fApprovals ?? []);
     setNotes(noteRows ?? []);
     setQcFiles(fileRows ?? []);
+    setHistory(historyRows ?? []);
     setUsers(Object.fromEntries((allUsers ?? []).map((u) => [u.id, u])));
 
     const lineIds = (ls ?? []).map((l) => l.id);
@@ -389,6 +392,24 @@ function WorkOrderDetail() {
               </div>
             ))}
           </div>
+        </section>
+      )}
+
+      {history.length > 0 && (
+        <section className="rounded-lg border border-kraft-200 bg-white">
+          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">STATUS HISTORY</div>
+          <ol className="p-5">
+            {history.map((h) => (
+              <li key={h.id} className="border-b border-kraft-100 py-2 text-xs last:border-none">
+                <div className="font-bold">
+                  {h.from_status ? STATUS_LABEL[h.from_status] : 'New'} → {STATUS_LABEL[h.to_status]}
+                </div>
+                <div className="text-ink-500">
+                  {users[h.changed_by ?? '']?.email ?? 'system'} · {new Date(h.changed_at).toLocaleString('en-GB')}
+                </div>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
 
