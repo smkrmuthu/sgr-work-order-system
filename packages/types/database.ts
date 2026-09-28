@@ -239,6 +239,8 @@ export interface Invoice {
   grand_total: number;
   generated_by: string | null;
   generated_at: string;
+  dispatched_at: string | null; // set when the goods leave (010); null = still waiting at the gate
+  dispatched_by: string | null;
 }
 
 export interface InvoiceLine {

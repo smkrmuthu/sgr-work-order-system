@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -280,18 +280,25 @@ const invLines = (await as(CREATOR, () => db.query(`select * from app.invoice_li
 // 100 held-then-reopened-then-accepted) -> QC qty 600 > 0, so the invoice uses 600 (not the ordered 1000).
 // Line 2 (CB1200450, price untouched at its seeded 42.00): no production/QC ever ran on this line in
 // this test, so QC qty is 0 and the invoice falls back to its ordered qty (200) per the documented default.
-ok(invLines.length === 2, 'invoice has one line per work order line: ' + invLines.length);
+ok(invLines.length === 1, 'the invoice bills only the line with QC-approved goods (line 2 has none yet): ' + invLines.length);
 const line1Inv = invLines.find(l => Number(l.qty) === 600);
 ok(line1Inv && Number(line1Inv.price) === 99.99 && Number(line1Inv.amount) === 59994,
    'invoice line 1 uses QC-approved qty (600) once it exists, at the MD-revised price: ' + JSON.stringify(line1Inv));
-const line2Inv = invLines.find(l => Number(l.qty) === 200);
-ok(line2Inv && Number(line2Inv.price) === 42 && Number(line2Inv.amount) === 8400,
-   'invoice line 2 falls back to ordered qty (200, no QC done on it) at its unrevised price: ' + JSON.stringify(line2Inv));
-const expectedSubtotal = 600 * 99.99 + 200 * 42;
+ok(!invLines.some((l) => Number(l.qty) === 200), 'goods that have not passed QC are never billed (no fall-back to the ordered qty)');
+const expectedSubtotal = 600 * 99.99;
 ok(Math.abs(Number(inv.subtotal) - expectedSubtotal) < 0.01, `subtotal matches hand calc: got ${inv.subtotal} expected ${expectedSubtotal}`);
 ok(Math.abs(Number(inv.cgst) - Number(inv.sgst)) < 0.001 && Number(inv.cgst) > 0 && Number(inv.igst) === 0, 'intra-state: CGST=SGST, no IGST: ' + JSON.stringify({cgst:inv.cgst,sgst:inv.sgst,igst:inv.igst}));
 ok(/^INV\/\d{4}-\d{2}\/\d{4}$/.test(inv.invoice_number), 'invoice number format: ' + inv.invoice_number);
 
+// created2 (500 x p1): produce, send, and QC-approve it all so there is something to bill.
+const c2Line = (await as(CREATOR, () => db.query(`select id from app.work_order_lines where work_order_id=$1`, [created2.id]))).rows[0].id;
+let billBeforeQc = null;
+try { await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'inter')`, [created2.id])); } catch (e) { billBeforeQc = e.message; }
+ok(/Nothing is ready to bill/.test(billBeforeQc || ''), 'an order with no QC-approved goods cannot be billed: ' + billBeforeQc);
+await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
+  work_order_id: created2.id, shift_id: shiftMorningId, labour_count: 4, lines: [{ work_order_line_id: c2Line, qty: 500, actual_weight_kg: 10 }] })]));
+await as(PLANNER, () => db.query(`select app.send_line_to_qc($1)`, [c2Line]));
+await as(QC, () => db.query(`select app.record_qc_inspection($1, 500, 'all good')`, [c2Line]));
 const inv2Id = (await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'inter') as id`, [created2.id]))).rows[0].id;
 const inv2 = (await as(CREATOR, () => db.query(`select * from app.invoices where id=$1`, [inv2Id]))).rows[0];
 ok(Number(inv2.igst) > 0 && Number(inv2.cgst) === 0 && Number(inv2.sgst) === 0, 'inter-state: IGST only: ' + JSON.stringify({cgst:inv2.cgst,igst:inv2.igst}));
@@ -469,6 +476,45 @@ await as(CREATOR, () => db.query(`select app.save_draft($1, $2)`, [rejId, JSON.s
 })]));
 const fixedQty = (await as(CREATOR, () => db.query(`select qty from app.work_order_lines where work_order_id=$1`, [rejId]))).rows[0].qty;
 ok(Number(fixedQty) === 6, 'a Creator can fix a rejected order and resubmit it');
+
+// ---------------------------------------------------------------- billing net of what is already billed, and dispatch (010)
+let doubleBill = null;
+try { await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [created2.id])); } catch (e) { doubleBill = e.message; }
+ok(/Nothing is ready to bill/.test(doubleBill || ''), 'the same goods cannot be billed twice: ' + doubleBill);
+
+// draftId line 1: 600 approved and billed above; produce + approve 400 more -> only those 400 are billable
+await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
+  work_order_id: draftId, shift_id: shiftMorningId, labour_count: 4, lines: [{ work_order_line_id: lineIds[0].id, qty: 400, actual_weight_kg: 1 }] })]));
+await as(PLANNER, () => db.query(`select app.send_line_to_qc($1)`, [lineIds[0].id]));
+await as(QC, () => db.query(`select app.record_qc_inspection($1, 400, 'second batch')`, [lineIds[0].id]));
+const inv3Id = (await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra') as id`, [draftId]))).rows[0].id;
+const inv3Lines = (await as(CREATOR, () => db.query(`select qty from app.invoice_lines where invoice_id=$1`, [inv3Id]))).rows;
+ok(inv3Lines.length === 1 && Number(inv3Lines[0].qty) === 400, 'a later invoice bills only the newly approved 400, not the 600 already billed: ' + JSON.stringify(inv3Lines));
+
+let financeBill = null;
+try { await as(FINANCE, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [draftId])); } catch (e) { financeBill = e.message; }
+ok(/Only MD/.test(financeBill || ''), 'only MD/Admin create invoices: ' + financeBill);
+
+let plannerDispatch = null;
+try { await as(PLANNER, () => db.query(`select app.mark_invoice_dispatched($1)`, [inv2Id])); } catch (e) { plannerDispatch = e.message; }
+ok(/Only MD/.test(plannerDispatch || ''), 'only MD/Admin mark an invoice dispatched: ' + plannerDispatch);
+
+await as(MD, () => db.query(`select app.mark_invoice_dispatched($1)`, [inv2Id]));
+const dispatched = (await as(CREATOR, () => db.query(`select dispatched_at, dispatched_by from app.invoices where id=$1`, [inv2Id]))).rows[0];
+ok(dispatched.dispatched_at !== null && dispatched.dispatched_by === MD, 'dispatch is recorded with who and when');
+const c2Status = (await as(CREATOR, () => db.query(`select status from app.work_orders where id=$1`, [created2.id]))).rows[0].status;
+ok(c2Status === 'completed', 'an order that is fully billed and fully dispatched is completed: ' + c2Status);
+let twice = null;
+try { await as(MD, () => db.query(`select app.mark_invoice_dispatched($1)`, [inv2Id])); } catch (e) { twice = e.message; }
+ok(/already been dispatched/.test(twice || ''), 'an invoice cannot be dispatched twice: ' + twice);
+
+await as(MD, () => db.query(`select app.mark_invoice_dispatched($1)`, [invId]));
+const partialStatus = (await as(CREATOR, () => db.query(`select status from app.work_orders where id=$1`, [draftId]))).rows[0].status;
+ok(partialStatus !== 'completed', 'a partly billed order (line 2 never produced) stays open after a dispatch: ' + partialStatus);
+
+let editInvoice = null;
+const editRes = await as(MD, () => db.query(`update app.invoices set grand_total = 1 where id=$1`, [inv3Id]));
+ok(editRes.affectedRows === 0, 'an invoice cannot be edited directly, even by the MD');
 
 // ---------------------------------------------------------------- QC file uploads (009)
 const bucket = (await db.query(`select public, file_size_limit, allowed_mime_types from storage.buckets where id='qc-attachments'`)).rows[0];

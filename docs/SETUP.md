@@ -9,7 +9,7 @@ Project: `https://zuvmolgdmhbgqonzpjcg.supabase.co`
 
 ## 1. Run the migrations
 
-Open the Supabase dashboard → **SQL Editor** → New query, and run these nine
+Open the Supabase dashboard → **SQL Editor** → New query, and run these ten
 files **in order**, pasting each one's full contents and clicking Run:
 
 1. `db/migrations/001_schema.sql` — schema, enums, tables
@@ -35,8 +35,13 @@ files **in order**, pasting each one's full contents and clicking Run:
 9. `db/migrations/009_qc_files.sql` — file uploads on QC inspections: creates the
    private `qc-attachments` storage bucket (10 MB per file; images, PDF, Excel,
    Word, CSV, text) and who may add/read files
+10. `db/migrations/010_billing_and_dispatch.sql` — the Finished Goods and Ready for
+    Dispatch tabs: invoices bill only QC-approved goods not yet billed (no
+    double-billing), and an invoice can be marked dispatched. Adds one new
+    function, `mark_invoice_dispatched` — if your Data API has per-function
+    toggles, switch it on (Integrations → Data API → Exposed functions)
 
-All nine are safe to re-run (`create table if not exists`, `drop policy if
+All ten are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
 
 ## 2. Expose the `app` schema to the API
