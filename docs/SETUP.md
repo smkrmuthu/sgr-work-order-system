@@ -9,7 +9,7 @@ Project: `https://zuvmolgdmhbgqonzpjcg.supabase.co`
 
 ## 1. Run the migrations
 
-Open the Supabase dashboard → **SQL Editor** → New query, and run these five
+Open the Supabase dashboard → **SQL Editor** → New query, and run these six
 files **in order**, pasting each one's full contents and clicking Run:
 
 1. `db/migrations/001_schema.sql` — schema, enums, tables
@@ -22,8 +22,11 @@ files **in order**, pasting each one's full contents and clicking Run:
 5. `db/migrations/005_grants.sql` — lets the signed-in API role reach the
    `app` schema (without it: "permission denied for schema app") and locks
    internal functions such as `next_wo_number` away from direct calls
+6. `db/migrations/006_notes_and_customer_ref.sql` — a Customer Reference on
+   each Work Order line, and Additional Notes stored as separate points
+   (one row each, with room for an icon later)
 
-All five are safe to re-run (`create table if not exists`, `drop policy if
+All six are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
 
 ## 2. Expose the `app` schema to the API

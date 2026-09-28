@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { STATUS_LABEL, STATUS_ORDER, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type {
   WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
-  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval,
+  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote,
 } from '@sgr/types';
 
 interface LineWithProgress extends WorkOrderLine {
@@ -39,6 +39,7 @@ function WorkOrderDetail() {
   const [lines, setLines] = useState<LineWithProgress[]>([]);
   const [revisions, setRevisions] = useState<WorkOrderRevision[]>([]);
   const [financeApprovals, setFinanceApprovals] = useState<FinanceApproval[]>([]);
+  const [notes, setNotes] = useState<WorkOrderNote[]>([]);
   const [invoices, setInvoices] = useState<(Invoice & { lines: InvoiceLine[] })[]>([]);
   const [users, setUsers] = useState<Record<string, AppUser>>({});
   const [error, setError] = useState('');
@@ -63,18 +64,20 @@ function WorkOrderDetail() {
     if (!w) { setError('Work order not found.'); return; }
     setWo(w);
 
-    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: fApprovals }, { data: allUsers }] = await Promise.all([
+    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: fApprovals }, { data: noteRows }, { data: allUsers }] = await Promise.all([
       w.partner_id ? supabase.from('business_partners').select('*').eq('id', w.partner_id).maybeSingle() : Promise.resolve({ data: null }),
       w.delivery_location_id ? supabase.from('delivery_locations').select('*').eq('id', w.delivery_location_id).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('work_order_lines').select('*').eq('work_order_id', id).order('line_no'),
       supabase.from('work_order_revisions').select('*').eq('work_order_id', id).order('revision'),
       supabase.from('finance_approvals').select('*').eq('work_order_id', id).order('created_at'),
+      supabase.from('work_order_notes').select('*').eq('work_order_id', id).order('position'),
       supabase.from('users').select('*'),
     ]);
     setPartner(p ?? null);
     setLocation(loc ?? null);
     setRevisions(revs ?? []);
     setFinanceApprovals(fApprovals ?? []);
+    setNotes(noteRows ?? []);
     setUsers(Object.fromEntries((allUsers ?? []).map((u) => [u.id, u])));
 
     const lineIds = (ls ?? []).map((l) => l.id);
@@ -257,7 +260,7 @@ function WorkOrderDetail() {
           <table className="w-full text-xs">
             <thead className="bg-kraft-100 text-left font-bold uppercase text-ink-900">
               <tr>
-                <th className="px-2 py-2">Part #</th><th className="px-2 py-2">Description</th>
+                <th className="px-2 py-2">Part #</th><th className="px-2 py-2">Description</th><th className="px-2 py-2">Customer Ref</th>
                 <th className="px-2 py-2">Ordered</th><th className="px-2 py-2">Produced</th>
                 <th className="px-2 py-2">QC Approved</th><th className="px-2 py-2">Std Price</th>
                 <th className="px-2 py-2">Final Price</th><th className="px-2 py-2">Line Total</th>
@@ -268,6 +271,7 @@ function WorkOrderDetail() {
                 <tr key={l.id} className="border-t border-kraft-100">
                   <td className="px-2 py-2 font-mono font-bold">{l.part_no_snapshot}</td>
                   <td className="px-2 py-2">{l.description_snapshot}</td>
+                  <td className="px-2 py-2 font-mono">{l.customer_ref || '—'}</td>
                   <td className="px-2 py-2 font-mono">
                     {editing && isMd ? (
                       <input value={lineEdits[l.id]?.qty ?? ''} onChange={(e) => setLineEdits((s) => ({ ...s, [l.id]: { ...s[l.id]!, qty: e.target.value } }))} className="input w-20 !py-1" />
@@ -287,7 +291,7 @@ function WorkOrderDetail() {
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-kraft-300 bg-kraft-50 font-mono text-[11px] font-bold">
-                <td className="px-2 py-2" colSpan={2}>TOTALS</td>
+                <td className="px-2 py-2" colSpan={3}>TOTALS</td>
                 <td className="px-2 py-2">{orderedTotal}</td>
                 <td className="px-2 py-2">{producedTotal}</td>
                 <td className="px-2 py-2">{qcTotal}</td>
@@ -298,6 +302,20 @@ function WorkOrderDetail() {
           </table>
         </div>
       </section>
+
+      {notes.length > 0 && (
+        <section className="rounded-lg border border-kraft-200 bg-white">
+          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">NOTES</div>
+          <ol className="flex flex-col gap-1.5 p-5">
+            {notes.map((n, i) => (
+              <li key={n.id} className="flex items-start gap-2 text-[13px]">
+                <span className="mt-px font-mono text-[11px] font-bold text-ink-500">{i + 1}.</span>
+                <span className="break-words">{n.note}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {financeApprovals.length > 0 && (
         <section className="rounded-lg border border-kraft-200 bg-white">

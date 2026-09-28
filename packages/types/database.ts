@@ -134,6 +134,17 @@ export interface WorkOrderLine {
   final_price: number;
   qty: number;
   remarks: string | null;
+  customer_ref: string | null; // snapshot of the Item Master's, editable per line (006)
+}
+
+// One point per row (006). `icon` is unused today: the symbol chosen from a note's content goes there later.
+export interface WorkOrderNote {
+  id: string;
+  work_order_id: string;
+  position: number;
+  note: string;
+  icon: string | null;
+  created_at: string;
 }
 
 export interface WorkOrderRevision {
@@ -264,6 +275,12 @@ export interface SaveDraftLine {
   part_id: string;
   qty: number;
   remarks?: string;
+  customer_ref?: string; // omitted -> the Item Master's value
+}
+
+export interface SaveDraftNote {
+  text: string;
+  icon?: string;
 }
 
 export interface SaveDraftPayload {
@@ -275,7 +292,7 @@ export interface SaveDraftPayload {
   doc_ref?: string;
   test_cert_required?: boolean;
   inspection_report_required?: boolean;
-  additional_notes?: string;
+  notes?: SaveDraftNote[];
   packing_required?: boolean;
   units_per_bundle?: number;
   pallet_height_in?: number;

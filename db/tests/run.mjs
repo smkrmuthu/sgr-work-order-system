@@ -27,7 +27,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -332,5 +332,49 @@ ok(!!selfReactivateErr && stillDeactivated === false,
 await as(ADMIN, () => db.query(`update app.users set is_active=true where id=$1`, [MD]));
 const reactivated = (await as(CREATOR, () => db.query(`select is_active from app.users where id=$1`, [MD]))).rows[0].is_active;
 ok(reactivated === true, 'Admin reactivates the MD: ' + reactivated);
+
+// ---------------------------------------------------------------- customer reference + notes as points (006)
+await as(MD, () => db.query(`update app.parts set customer_ref='MASTER-REF-1' where id=$1`, [p1.id]));
+const noteDraftId = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2026-12-01',
+  lines: [
+    { part_id: p1.id, qty: 10 },                                   // falls back to the Item Master's reference
+    { part_id: p2.id, qty: 5, customer_ref: '  CUST-77  ' },       // explicit, trimmed
+  ],
+  notes: ['Wrap in kraft paper', { text: 'Label both ends', icon: 'label' }, '   ', { icon: 'x' }],
+})]))).rows[0].id;
+
+const noteLines = (await as(CREATOR, () => db.query(`select customer_ref from app.work_order_lines where work_order_id=$1 order by line_no`, [noteDraftId]))).rows;
+ok(noteLines[0].customer_ref === 'MASTER-REF-1' && noteLines[1].customer_ref === 'CUST-77',
+   'line customer_ref: falls back to the Item Master, or takes the (trimmed) value given: ' + JSON.stringify(noteLines));
+
+const savedNotes = (await as(CREATOR, () => db.query(`select position, note, icon from app.work_order_notes where work_order_id=$1 order by position`, [noteDraftId]))).rows;
+ok(savedNotes.length === 2 && savedNotes[0].note === 'Wrap in kraft paper' && savedNotes[0].position === 1
+   && savedNotes[1].note === 'Label both ends' && savedNotes[1].icon === 'label',
+   'notes are stored as separate ordered points (blank / text-less entries dropped, icon kept): ' + JSON.stringify(savedNotes));
+
+await as(CREATOR, () => db.query(`select app.save_draft($1, $2)`, [noteDraftId, JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2026-12-01',
+  lines: [{ part_id: p1.id, qty: 10 }], notes: ['Only this one'],
+})]));
+const replacedNotes = (await as(CREATOR, () => db.query(`select note from app.work_order_notes where work_order_id=$1`, [noteDraftId]))).rows;
+ok(replacedNotes.length === 1 && replacedNotes[0].note === 'Only this one', 're-saving a draft replaces its notes rather than piling them up');
+
+let foreignNoteErr = null;
+try { await as(OTHER_CREATOR, () => db.query(`insert into app.work_order_notes (work_order_id, note) values ($1, 'sneaky')`, [noteDraftId])); }
+catch (e) { foreignNoteErr = e.message; }
+ok(!!foreignNoteErr, "another Creator cannot add a note to someone else's draft (" + foreignNoteErr + ')');
+
+let lockedNoteErr = null;
+try { await as(CREATOR, () => db.query(`insert into app.work_order_notes (work_order_id, note) values ($1, 'too late')`, [draftId])); }
+catch (e) { lockedNoteErr = e.message; }
+ok(!!lockedNoteErr, 'a Creator cannot add notes once the Work Order is created (' + lockedNoteErr + ')');
+
+const mdNote = await as(MD, () => db.query(`insert into app.work_order_notes (work_order_id, note) values ($1, 'MD addition')`, [draftId]));
+ok(mdNote.affectedRows === 1, 'MD can still add a note after creation');
+
+let anonNotes = null;
+try { await asAnon(() => db.query(`select * from app.work_order_notes`)); } catch (e) { anonNotes = e.message; }
+ok(/permission denied/.test(anonNotes || ''), 'anon cannot read notes: ' + anonNotes);
 
 console.log('\nDone.');

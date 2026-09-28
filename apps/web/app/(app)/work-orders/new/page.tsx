@@ -10,6 +10,7 @@ interface LineRow {
   part: Part;
   qty: number;
   remarks: string;
+  customerRef: string;
 }
 
 export default function NewWorkOrderPage() {
@@ -33,12 +34,15 @@ export default function NewWorkOrderPage() {
   const [palletHeight, setPalletHeight] = useState('46');
   const [separateVehicle, setSeparateVehicle] = useState(false);
   const [transportNotes, setTransportNotes] = useState('');
-  const [notes, setNotes] = useState('');
+  // Additional notes are separate points, not a paragraph (each one becomes a row in work_order_notes).
+  const [notes, setNotes] = useState<string[]>([]);
+  const [noteInput, setNoteInput] = useState('');
 
   const [lines, setLines] = useState<LineRow[]>([]);
   const [newPartId, setNewPartId] = useState('');
   const [newQty, setNewQty] = useState('');
   const [newRemarks, setNewRemarks] = useState('');
+  const [newCustomerRef, setNewCustomerRef] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -63,6 +67,9 @@ export default function NewWorkOrderPage() {
   const partnerLocations = useMemo(() => locations.filter((l) => l.partner_id === partnerId), [locations, partnerId]);
   const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? '';
 
+  // A note that's been typed but not yet added with Enter/"+ Add note" still counts when saving.
+  const allNotes = () => (noteInput.trim() ? [...notes, noteInput.trim()] : notes);
+
   const payload = () => ({
     partner_id: partnerId || undefined,
     delivery_location_id: locationId || undefined,
@@ -71,13 +78,17 @@ export default function NewWorkOrderPage() {
     doc_ref: docRef || undefined,
     test_cert_required: testCert,
     inspection_report_required: inspectionReport,
-    additional_notes: notes || undefined,
+    notes: allNotes().map((text) => ({ text })),
     packing_required: packingRequired,
     units_per_bundle: bundleQty ? Number(bundleQty) : undefined,
     pallet_height_in: palletHeight ? Number(palletHeight) : undefined,
     separate_vehicle_required: separateVehicle,
     transport_notes: transportNotes || undefined,
-    lines: lines.map((l) => ({ part_id: l.part.id, qty: l.qty, remarks: l.remarks || undefined })),
+    lines: lines.map((l) => ({
+      part_id: l.part.id, qty: l.qty, remarks: l.remarks || undefined,
+      // sent even when blank, so clearing the box doesn't silently fall back to the Item Master's value
+      customer_ref: l.customerRef,
+    })),
   });
 
   async function saveDraft(): Promise<string | null> {
@@ -87,6 +98,8 @@ export default function NewWorkOrderPage() {
     setSaving(false);
     if (error) { setError(error.message); return null; }
     setDraftId(data as string);
+    setNotes(allNotes());
+    setNoteInput('');
     setMessage('Draft saved just now.');
     return data as string;
   }
@@ -95,8 +108,15 @@ export default function NewWorkOrderPage() {
     const part = parts.find((p) => p.id === newPartId);
     const qty = parseFloat(newQty);
     if (!part || !qty || qty <= 0) return;
-    setLines((ls) => [...ls, { key: crypto.randomUUID(), part, qty, remarks: newRemarks }]);
-    setNewPartId(''); setNewQty(''); setNewRemarks('');
+    setLines((ls) => [...ls, { key: crypto.randomUUID(), part, qty, remarks: newRemarks, customerRef: newCustomerRef.trim() }]);
+    setNewPartId(''); setNewQty(''); setNewRemarks(''); setNewCustomerRef('');
+  }
+
+  function addNote() {
+    const text = noteInput.trim();
+    if (!text) return;
+    setNotes((ns) => [...ns, text]);
+    setNoteInput('');
   }
 
   async function createWorkOrder() {
@@ -168,18 +188,19 @@ export default function NewWorkOrderPage() {
           <table className="w-full text-xs">
             <thead className="bg-kraft-100 text-left font-bold uppercase text-ink-900">
               <tr>
-                <th className="px-2 py-2">Part #</th><th className="px-2 py-2">Description</th><th className="px-2 py-2">Qty</th>
+                <th className="px-2 py-2">Part #</th><th className="px-2 py-2">Description</th><th className="px-2 py-2">Customer Ref</th><th className="px-2 py-2">Qty</th>
                 <th className="px-2 py-2">Price</th><th className="px-2 py-2">Line Total</th><th className="px-2 py-2">Remarks</th><th />
               </tr>
             </thead>
             <tbody>
               {lines.length === 0 && (
-                <tr><td colSpan={7} className="px-2 py-6 text-center text-ink-500">No line items yet — add one below.</td></tr>
+                <tr><td colSpan={8} className="px-2 py-6 text-center text-ink-500">No line items yet — add one below.</td></tr>
               )}
               {lines.map((l) => (
                 <tr key={l.key} className="border-t border-kraft-100">
                   <td className="px-2 py-2 font-mono font-bold">{l.part.part_no}</td>
                   <td className="px-2 py-2">{l.part.description}</td>
+                  <td className="px-2 py-2 font-mono">{l.customerRef || '—'}</td>
                   <td className="px-2 py-2 font-mono">{l.qty}</td>
                   <td className="px-2 py-2 font-mono">₹{l.part.price.toFixed(2)}</td>
                   <td className="px-2 py-2 font-mono font-bold">₹{(l.qty * l.part.price).toLocaleString('en-IN')}</td>
@@ -195,7 +216,15 @@ export default function NewWorkOrderPage() {
           <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-dashed border-kraft-300 bg-kraft-50 p-3">
             <div className="min-w-[220px] flex-1">
               <label className="mb-1 block text-[11px] font-bold text-ink-700">Part #</label>
-              <select value={newPartId} onChange={(e) => setNewPartId(e.target.value)} className="input">
+              <select
+                value={newPartId}
+                onChange={(e) => {
+                  setNewPartId(e.target.value);
+                  // prefill from the Item Master; still editable for this line
+                  setNewCustomerRef(parts.find((p) => p.id === e.target.value)?.customer_ref ?? '');
+                }}
+                className="input"
+              >
                 <option value="">Select part #…</option>
                 {parts.map((p) => <option key={p.id} value={p.id}>{p.part_no} — {p.description}</option>)}
               </select>
@@ -203,6 +232,10 @@ export default function NewWorkOrderPage() {
             <div className="w-24">
               <label className="mb-1 block text-[11px] font-bold text-ink-700">Qty</label>
               <input type="number" min={1} value={newQty} onChange={(e) => setNewQty(e.target.value)} className="input" />
+            </div>
+            <div className="w-40">
+              <label className="mb-1 block text-[11px] font-bold text-ink-700">Customer Ref</label>
+              <input value={newCustomerRef} onChange={(e) => setNewCustomerRef(e.target.value)} className="input" />
             </div>
             <div className="min-w-[160px] flex-1">
               <label className="mb-1 block text-[11px] font-bold text-ink-700">Remarks</label>
@@ -236,7 +269,33 @@ export default function NewWorkOrderPage() {
             <Toggle label="Test Certificate Required" checked={testCert} onChange={setTestCert} />
             <Toggle label="Inspection Report Required" checked={inspectionReport} onChange={setInspectionReport} />
             <Field label="Additional Notes">
-              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="input min-h-[64px]" />
+              <ol className="mb-2 flex flex-col gap-1.5">
+                {notes.length === 0 && <li className="text-xs text-ink-300">No notes yet — add each point separately.</li>}
+                {notes.map((n, i) => (
+                  <li key={i} className="flex items-start gap-2 rounded-md border border-kraft-200 bg-kraft-50 px-2.5 py-1.5 text-[12.5px]">
+                    <span className="mt-px font-mono text-[11px] font-bold text-ink-500">{i + 1}.</span>
+                    <span className="flex-1 break-words">{n}</span>
+                    <button
+                      type="button"
+                      onClick={() => setNotes((ns) => ns.filter((_, j) => j !== i))}
+                      aria-label={`Remove note ${i + 1}`}
+                      className="text-ink-300 hover:text-rose-600"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ol>
+              <div className="flex gap-2">
+                <input
+                  value={noteInput}
+                  onChange={(e) => setNoteInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addNote(); } }}
+                  placeholder="Type a note and press Enter"
+                  className="input"
+                />
+                <button type="button" onClick={addNote} disabled={!noteInput.trim()} className="btn-secondary whitespace-nowrap">+ Add note</button>
+              </div>
             </Field>
           </div>
           <div className="flex flex-col gap-3">
