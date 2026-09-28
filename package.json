@@ -1,0 +1,17 @@
+{
+  "name": "sgr-work-order-system",
+  "private": true,
+  "description": "SGR Moulds India — production Work Order Management System (Phase 1)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "build": "npm run build --workspace=apps/web",
+    "typecheck": "npm run typecheck --workspace=apps/web"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

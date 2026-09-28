@@ -1,0 +1,33 @@
+import type { WoStatus } from '@sgr/types';
+
+// Same lifecycle across every screen (v1.3 §7), one source of truth for its label/order/color.
+export const STATUS_ORDER: WoStatus[] = [
+  'created',
+  'in_production',
+  'qc_pending',
+  'partially_qc_approved',
+  'ready_for_dispatch',
+  'completed',
+];
+
+export const STATUS_LABEL: Record<WoStatus, string> = {
+  draft: 'Draft',
+  created: 'Created',
+  in_production: 'In Production',
+  qc_pending: 'QC Pending',
+  partially_qc_approved: 'Partially QC Approved',
+  ready_for_dispatch: 'Ready for Dispatch',
+  completed: 'Completed / Closed',
+  cancelled: 'Cancelled',
+};
+
+export const STATUS_BADGE_CLASS: Record<WoStatus, string> = {
+  draft: 'bg-kraft-100 text-kraft-900 border-kraft-300',
+  created: 'bg-amber-50 text-amber-800 border-amber-200',
+  in_production: 'bg-amber-50 text-amber-800 border-amber-200',
+  qc_pending: 'bg-amber-50 text-amber-800 border-amber-200',
+  partially_qc_approved: 'bg-amber-50 text-amber-800 border-amber-200',
+  ready_for_dispatch: 'bg-blue-50 text-blue-800 border-blue-200',
+  completed: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  cancelled: 'bg-rose-50 text-rose-800 border-rose-200',
+};

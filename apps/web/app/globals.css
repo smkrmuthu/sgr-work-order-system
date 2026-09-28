@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+/* Same brand palette as the prototype (sgrApp) and the Phase 1 wireframes, so this reads as the
+   production continuation of the same product, not a different one. */
+@theme {
+  --color-forest-900: #1a352a;
+  --color-forest-800: #1e4032;
+  --color-forest-700: #24503c;
+  --color-forest-600: #2c644a;
+  --color-forest-500: #3c7f5f;
+  --color-forest-300: #8bbfa4;
+  --color-forest-100: #dcece2;
+  --color-forest-50: #f0f7f3;
+
+  --color-kraft-900: #3f2a15;
+  --color-kraft-700: #714d25;
+  --color-kraft-300: #d7b47c;
+  --color-kraft-200: #e6d0ac;
+  --color-kraft-100: #f3e9d8;
+  --color-kraft-50: #fbf7f0;
+
+  --color-ink-900: #1c1a17;
+  --color-ink-700: #3d3a36;
+  --color-ink-500: #6b6660;
+  --color-ink-300: #a39e97;
+  --color-ink-100: #e5e2dc;
+
+  --color-emerald-600: #059669;
+  --color-amber-600: #d97706;
+  --color-rose-600: #dc2626;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+body {
+  background: var(--color-kraft-50);
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-kraft-300 bg-white px-3 py-2 text-sm outline-none;
+  }
+  .input:focus {
+    @apply border-forest-500 ring-2 ring-forest-500/20;
+  }
+  .input:disabled {
+    @apply bg-kraft-100 text-ink-500;
+  }
+  .btn-primary {
+    @apply rounded-md bg-forest-700 px-4 py-2 text-xs font-bold text-white hover:bg-forest-800 disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-500;
+  }
+  .btn-secondary {
+    @apply rounded-md border border-kraft-300 bg-white px-4 py-2 text-xs font-bold text-ink-900 hover:bg-kraft-50 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+}

@@ -1,0 +1,311 @@
+'use client';
+
+import { Suspense, useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
+import { STATUS_LABEL, STATUS_ORDER } from '@/lib/statusLabels';
+import type {
+  WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
+  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser,
+} from '@sgr/types';
+
+interface LineWithProgress extends WorkOrderLine {
+  produced: number;
+  qcApproved: number;
+  qcHeld: number;
+}
+
+// A query-param route (?id=...), not a dynamic segment: Work Order ids only exist once someone
+// creates one at runtime, so a statically-exported app (next.config.ts: output "export") can't
+// pre-know them at build time the way a /work-orders/[id] path would require.
+export default function WorkOrderDetailPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-ink-500">Loading…</p>}>
+      <WorkOrderDetail />
+    </Suspense>
+  );
+}
+
+function WorkOrderDetail() {
+  const id = useSearchParams().get('id') ?? '';
+  const { profile } = useAuth();
+  const isMd = profile?.role === 'md' || profile?.role === 'admin';
+
+  const [wo, setWo] = useState<WorkOrder | null>(null);
+  const [partner, setPartner] = useState<BusinessPartner | null>(null);
+  const [location, setLocation] = useState<DeliveryLocation | null>(null);
+  const [lines, setLines] = useState<LineWithProgress[]>([]);
+  const [revisions, setRevisions] = useState<WorkOrderRevision[]>([]);
+  const [invoices, setInvoices] = useState<(Invoice & { lines: InvoiceLine[] })[]>([]);
+  const [users, setUsers] = useState<Record<string, AppUser>>({});
+  const [error, setError] = useState('');
+
+  const [editing, setEditing] = useState(false);
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [docRef, setDocRef] = useState('');
+  const [lineEdits, setLineEdits] = useState<Record<string, { qty: string; final_price: string }>>({});
+  const [saving, setSaving] = useState(false);
+
+  const [gstRate, setGstRate] = useState('18');
+  const [supplyType, setSupplyType] = useState<'intra' | 'inter'>('intra');
+  const [generating, setGenerating] = useState(false);
+
+  const load = useCallback(async () => {
+    const { data: w, error: e1 } = await supabase.from('work_orders').select('*').eq('id', id).maybeSingle();
+    if (e1) { setError(e1.message); return; }
+    if (!w) { setError('Work order not found.'); return; }
+    setWo(w);
+
+    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: allUsers }] = await Promise.all([
+      w.partner_id ? supabase.from('business_partners').select('*').eq('id', w.partner_id).maybeSingle() : Promise.resolve({ data: null }),
+      w.delivery_location_id ? supabase.from('delivery_locations').select('*').eq('id', w.delivery_location_id).maybeSingle() : Promise.resolve({ data: null }),
+      supabase.from('work_order_lines').select('*').eq('work_order_id', id).order('line_no'),
+      supabase.from('work_order_revisions').select('*').eq('work_order_id', id).order('revision'),
+      supabase.from('users').select('*'),
+    ]);
+    setPartner(p ?? null);
+    setLocation(loc ?? null);
+    setRevisions(revs ?? []);
+    setUsers(Object.fromEntries((allUsers ?? []).map((u) => [u.id, u])));
+
+    const lineIds = (ls ?? []).map((l) => l.id);
+    const [{ data: produced }, { data: inspections }] = await Promise.all([
+      lineIds.length ? supabase.from('production_output_lines').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as ProductionOutputLine[] }),
+      lineIds.length ? supabase.from('qc_inspections').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as QcInspection[] }),
+    ]);
+    const withProgress: LineWithProgress[] = (ls ?? []).map((l) => ({
+      ...l,
+      produced: (produced ?? []).filter((o) => o.work_order_line_id === l.id).reduce((n, o) => n + Number(o.qty), 0),
+      qcApproved: (inspections ?? []).filter((q) => q.work_order_line_id === l.id).reduce((n, q) => n + Number(q.accepted_qty), 0),
+      qcHeld: (inspections ?? []).filter((q) => q.work_order_line_id === l.id).reduce((n, q) => n + Number(q.held_qty), 0),
+    }));
+    setLines(withProgress);
+    setLineEdits(Object.fromEntries(withProgress.map((l) => [l.id, { qty: String(l.qty), final_price: String(l.final_price) }])));
+
+    const { data: invs } = await supabase.from('invoices').select('*').eq('work_order_id', id).order('generated_at');
+    const withLines = await Promise.all((invs ?? []).map(async (inv) => {
+      const { data: il } = await supabase.from('invoice_lines').select('*').eq('invoice_id', inv.id);
+      return { ...inv, lines: il ?? [] };
+    }));
+    setInvoices(withLines);
+  }, [id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  function startEdit() {
+    if (!wo) return;
+    setDeliveryDate(wo.delivery_date ?? '');
+    setDocRef(wo.doc_ref ?? '');
+    setEditing(true);
+  }
+
+  async function saveEdit() {
+    if (!wo) return;
+    setSaving(true); setError('');
+    const { error: e1 } = await supabase.from('work_orders').update({
+      delivery_date: deliveryDate || null, doc_ref: docRef || null,
+    }).eq('id', wo.id);
+    if (e1) { setSaving(false); setError(e1.message); return; }
+
+    for (const l of lines) {
+      const edit = lineEdits[l.id];
+      if (!edit) continue;
+      const qty = Number(edit.qty), price = Number(edit.final_price);
+      if (qty === l.qty && price === l.final_price) continue;
+      const { error: e2 } = await supabase.from('work_order_lines').update({ qty, final_price: price }).eq('id', l.id);
+      if (e2) { setSaving(false); setError(e2.message); return; }
+    }
+    setSaving(false);
+    setEditing(false);
+    load();
+  }
+
+  async function generateInvoice() {
+    if (!wo) return;
+    setGenerating(true); setError('');
+    const { error } = await supabase.rpc('generate_invoice', { p_work_order_id: wo.id, p_gst_rate: Number(gstRate), p_supply_type: supplyType });
+    setGenerating(false);
+    if (error) { setError(error.message); return; }
+    load();
+  }
+
+  if (error) return <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>;
+  if (!wo) return <p className="text-sm text-ink-500">Loading…</p>;
+
+  const statusIdx = STATUS_ORDER.indexOf(wo.status as any);
+  const orderedTotal = lines.reduce((n, l) => n + l.qty, 0);
+  const producedTotal = lines.reduce((n, l) => n + l.produced, 0);
+  const qcTotal = lines.reduce((n, l) => n + l.qcApproved, 0);
+  const finalValue = lines.reduce((n, l) => n + l.qty * l.final_price, 0);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <section className="rounded-lg border border-kraft-200 bg-white">
+        <div className="flex items-center justify-between border-b border-kraft-100 px-5 py-3">
+          <div>
+            <div className="text-sm font-bold text-forest-900">WORK ORDER <span className="font-mono">{wo.wo_number}</span></div>
+            <div className="text-xs text-ink-500">{partner ? `${partner.code} — ${partner.name}` : '—'} · {location?.label ?? '—'}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800">{STATUS_LABEL[wo.status]}</span>
+            <span className="rounded-full border border-forest-100 bg-forest-50 px-2 py-0.5 font-mono text-[11px] font-bold text-forest-800">REVISION R{wo.revision}</span>
+          </div>
+        </div>
+        <div className="p-5">
+          <div className="mb-4 flex flex-wrap items-center gap-0 overflow-x-auto">
+            {STATUS_ORDER.map((s, i) => (
+              <div key={s} className="flex items-center gap-1">
+                <div className={`flex items-center gap-1.5 text-[10px] font-bold ${i <= statusIdx ? 'text-forest-800' : 'text-ink-300'}`}>
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full ${i <= statusIdx ? 'bg-forest-600 text-white' : 'bg-ink-100 text-ink-500'}`}>{i + 1}</span>
+                  {STATUS_LABEL[s]}
+                </div>
+                {i < STATUS_ORDER.length - 1 && <div className={`h-0.5 w-6 ${i < statusIdx ? 'bg-forest-500' : 'bg-ink-100'}`} />}
+              </div>
+            ))}
+          </div>
+
+          {!editing ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Info label="WO Date" value={wo.wo_date} />
+              <Info label="Delivery Date" value={wo.delivery_date ?? '—'} />
+              <Info label="Expected Completion" value={wo.expected_completion_date ?? '—'} hint="Planner sets this" />
+              <Info label="Document Ref" value={wo.doc_ref ?? '—'} />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field label="Delivery Date"><input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="input" /></Field>
+              <Field label="Document Reference"><input value={docRef} onChange={(e) => setDocRef(e.target.value)} className="input" /></Field>
+              <Info label="Expected Completion" value={wo.expected_completion_date ?? '—'} hint="Planner sets this" />
+              <Info label="Vendor / Location" value={`${partner?.code ?? ''} · ${location?.label ?? ''}`} hint="Fixed after creation" />
+            </div>
+          )}
+
+          {isMd && (
+            <div className="mt-4 flex justify-end gap-2">
+              {!editing ? (
+                <button onClick={startEdit} className="btn-secondary">Edit Work Order</button>
+              ) : (
+                <>
+                  <button onClick={() => setEditing(false)} className="btn-secondary">Cancel</button>
+                  <button onClick={saveEdit} disabled={saving} className="btn-primary">{saving ? 'Saving…' : `Save Changes — creates R${wo.revision + 1}`}</button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-kraft-200 bg-white">
+        <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">LINE ITEMS &amp; PRODUCTION PROGRESS</div>
+        <div className="overflow-x-auto p-5">
+          <table className="w-full text-xs">
+            <thead className="bg-kraft-100 text-left font-bold uppercase text-ink-900">
+              <tr>
+                <th className="px-2 py-2">Part #</th><th className="px-2 py-2">Description</th>
+                <th className="px-2 py-2">Ordered</th><th className="px-2 py-2">Produced</th>
+                <th className="px-2 py-2">QC Approved</th><th className="px-2 py-2">Std Price</th>
+                <th className="px-2 py-2">Final Price</th><th className="px-2 py-2">Line Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((l) => (
+                <tr key={l.id} className="border-t border-kraft-100">
+                  <td className="px-2 py-2 font-mono font-bold">{l.part_no_snapshot}</td>
+                  <td className="px-2 py-2">{l.description_snapshot}</td>
+                  <td className="px-2 py-2 font-mono">
+                    {editing && isMd ? (
+                      <input value={lineEdits[l.id]?.qty ?? ''} onChange={(e) => setLineEdits((s) => ({ ...s, [l.id]: { ...s[l.id]!, qty: e.target.value } }))} className="input w-20 !py-1" />
+                    ) : l.qty}
+                  </td>
+                  <td className="px-2 py-2 font-mono">{l.produced} / {l.qty}</td>
+                  <td className="px-2 py-2 font-mono">{l.qcApproved} / {l.qty}{l.qcHeld > 0 && <span className="ml-1 rounded-full bg-amber-100 px-1.5 text-amber-800">{l.qcHeld} held</span>}</td>
+                  <td className="px-2 py-2 font-mono">₹{l.standard_price_snapshot.toFixed(2)}</td>
+                  <td className="px-2 py-2 font-mono">
+                    {editing && isMd ? (
+                      <input value={lineEdits[l.id]?.final_price ?? ''} onChange={(e) => setLineEdits((s) => ({ ...s, [l.id]: { ...s[l.id]!, final_price: e.target.value } }))} className="input w-24 !py-1" />
+                    ) : `₹${l.final_price.toFixed(2)}`}
+                  </td>
+                  <td className="px-2 py-2 font-mono font-bold">₹{(l.qty * l.final_price).toLocaleString('en-IN')}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-kraft-300 bg-kraft-50 font-mono text-[11px] font-bold">
+                <td className="px-2 py-2" colSpan={2}>TOTALS</td>
+                <td className="px-2 py-2">{orderedTotal}</td>
+                <td className="px-2 py-2">{producedTotal}</td>
+                <td className="px-2 py-2">{qcTotal}</td>
+                <td colSpan={2} />
+                <td className="px-2 py-2">₹{finalValue.toLocaleString('en-IN')}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-kraft-200 bg-white">
+        <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">REVISION &amp; AUDIT HISTORY</div>
+        <div className="p-5">
+          {revisions.length === 0 && <p className="text-xs text-ink-500">No edits yet — still at R0.</p>}
+          {revisions.map((r) => (
+            <div key={r.id} className="border-b border-kraft-100 py-2 text-xs last:border-none">
+              <div className="font-bold">R{r.revision} snapshot preserved before an MD edit</div>
+              <div className="text-ink-500">{users[r.changed_by ?? '']?.email ?? r.changed_by} · {new Date(r.changed_at).toLocaleString('en-GB')}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {isMd && (
+        <section className="rounded-lg border border-kraft-200 bg-white">
+          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">INVOICE</div>
+          <div className="p-5">
+            {invoices.map((inv) => (
+              <div key={inv.id} className="mb-4 rounded-md border border-kraft-300 bg-kraft-50 p-4 text-xs">
+                <div className="mb-2 font-bold">{inv.invoice_number} · {inv.invoice_date}</div>
+                {inv.lines.map((l) => (
+                  <div key={l.id} className="flex justify-between py-0.5">
+                    <span>{l.description} × {l.qty}</span><span className="font-mono">₹{Number(l.amount).toLocaleString('en-IN')}</span>
+                  </div>
+                ))}
+                <div className="mt-2 border-t border-kraft-300 pt-2 font-mono font-bold">Grand Total: ₹{Number(inv.grand_total).toLocaleString('en-IN')}</div>
+              </div>
+            ))}
+            <div className="flex flex-wrap items-end gap-3">
+              <Field label="GST Rate">
+                <select value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="input">
+                  <option value="18">18%</option><option value="12">12%</option><option value="5">5%</option><option value="0">0%</option>
+                </select>
+              </Field>
+              <Field label="Supply Type">
+                <select value={supplyType} onChange={(e) => setSupplyType(e.target.value as any)} className="input">
+                  <option value="intra">Intra-State (CGST+SGST)</option><option value="inter">Inter-State (IGST)</option>
+                </select>
+              </Field>
+              <button onClick={generateInvoice} disabled={generating} className="btn-primary">{generating ? 'Generating…' : 'Generate Invoice'}</button>
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function Info({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div>
+      <div className="text-[11px] font-semibold text-ink-500">{label}</div>
+      <div className="text-sm font-bold">{value}</div>
+      {hint && <div className="text-[10px] text-ink-300">{hint}</div>}
+    </div>
+  );
+}
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="mb-1 block text-[11px] font-bold text-ink-700">{label}</label>
+      {children}
+    </div>
+  );
+}

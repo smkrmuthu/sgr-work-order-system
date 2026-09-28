@@ -1,0 +1,8 @@
+{
+  "name": "@sgr/types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared TypeScript contract for the `app` Postgres schema — the same types a future mobile client reuses. Hand-maintained to match db/migrations; regenerate with `supabase gen types typescript` once the Supabase CLI is set up, and diff before trusting it blindly.",
+  "main": "index.ts",
+  "types": "index.ts"
+}
