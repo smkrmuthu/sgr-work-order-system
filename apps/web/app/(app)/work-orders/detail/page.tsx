@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState, useCallback } from 'react';
+import { Suspense, useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -29,7 +29,10 @@ export default function WorkOrderDetailPage() {
 }
 
 function WorkOrderDetail() {
-  const id = useSearchParams().get('id') ?? '';
+  const params = useSearchParams();
+  const id = params.get('id') ?? '';
+  const wantsEdit = params.get('edit') === '1';
+  const autoEdited = useRef(false);
   const { profile } = useAuth();
   const isMd = profile?.role === 'md' || profile?.role === 'admin';
   const isFinance = profile?.role === 'finance' || profile?.role === 'md' || profile?.role === 'admin';
@@ -104,6 +107,16 @@ function WorkOrderDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Arriving from the list's "Edit" link (?edit=1): open the MD's edit mode straight away, once.
+  useEffect(() => {
+    if (!wantsEdit || !wo || !isMd || autoEdited.current) return;
+    const ownerForm = wo.created_by === profile?.id && (wo.status === 'draft' || wo.status === 'pending_finance_approval');
+    if (ownerForm) return; // the Creator's full form is offered instead
+    autoEdited.current = true;
+    startEdit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsEdit, wo, isMd, profile]);
 
   function startEdit() {
     if (!wo) return;

@@ -38,6 +38,17 @@ export default function WorkOrdersPage() {
     return () => { cancelled = true; };
   }, [profile]);
 
+  // Where "Edit" goes: the Creator edits their own order on the full form until Finance approves it;
+  // the MD/Admin edits any order from its page (quantities, prices, dates — each save opens a revision
+  // once it has been released). Everyone else has no Edit.
+  const isMdOrAdmin = profile?.role === 'md' || profile?.role === 'admin';
+  const editHref = (r: Row): string | null => {
+    const editableByOwner = r.created_by === profile?.id && (r.status === 'draft' || r.status === 'pending_finance_approval');
+    if (editableByOwner) return `/work-orders/new?id=${r.id}`;
+    if (isMdOrAdmin && r.status !== 'draft' && r.status !== 'cancelled') return `/work-orders/detail?id=${r.id}&edit=1`;
+    return null;
+  };
+
   const filtered = (rows ?? []).filter((r) => {
     if (!q.trim()) return true;
     const s = q.toLowerCase();
@@ -78,14 +89,15 @@ export default function WorkOrdersPage() {
               <th className="px-3 py-2 text-right">Total Qty</th>
               <th className="px-3 py-2 text-center">Revision</th>
               <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2" />
             </tr>
           </thead>
           <tbody>
             {rows === null && (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-ink-500">Loading…</td></tr>
+              <tr><td colSpan={8} className="px-3 py-8 text-center text-ink-500">Loading…</td></tr>
             )}
             {rows !== null && filtered.length === 0 && (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-ink-500">No Work Orders found.</td></tr>
+              <tr><td colSpan={8} className="px-3 py-8 text-center text-ink-500">No Work Orders found.</td></tr>
             )}
             {filtered.map((r) => (
               <tr key={r.id} className="border-t border-kraft-100 hover:bg-kraft-50">
@@ -103,6 +115,13 @@ export default function WorkOrdersPage() {
                   <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_BADGE_CLASS[r.status]}`}>
                     {STATUS_LABEL[r.status]}
                   </span>
+                </td>
+                <td className="px-3 py-2 text-right">
+                  {editHref(r) && (
+                    <Link href={editHref(r)!} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50">
+                      Edit
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}
