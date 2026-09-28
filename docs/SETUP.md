@@ -9,7 +9,7 @@ Project: `https://zuvmolgdmhbgqonzpjcg.supabase.co`
 
 ## 1. Run the migrations
 
-Open the Supabase dashboard → **SQL Editor** → New query, and run these seven
+Open the Supabase dashboard → **SQL Editor** → New query, and run these eight
 files **in order**, pasting each one's full contents and clicking Run:
 
 1. `db/migrations/001_schema.sql` — schema, enums, tables
@@ -29,8 +29,11 @@ files **in order**, pasting each one's full contents and clicking Run:
    their own Work Order until Finance approves it, **and a security fix**:
    row-level security was never switched on for the line-items table, so
    any signed-in user could change any order's quantities and prices
+8. `db/migrations/008_service_role_grants.sql` — lets the Users function (which
+   runs with Supabase's admin key) read the `app` schema; without it the Users
+   page says "Only MD or Admin can manage users" even to the MD
 
-All seven are safe to re-run (`create table if not exists`, `drop policy if
+All eight are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
 
 ## 2. Expose the `app` schema to the API

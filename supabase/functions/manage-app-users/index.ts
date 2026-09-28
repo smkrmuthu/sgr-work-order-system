@@ -63,8 +63,10 @@ export async function handle(req, admin) {
   const caller = who.user;
 
   // 2. Are they MD or Admin? Decided by the database row, never by anything the browser claims.
-  const { data: me } = await admin.from("users").select("role").eq("id", caller.id).maybeSingle();
-  if (!me || !["md", "admin"].includes(me.role)) return reply(403, { error: "Only MD or Admin can manage users." });
+  const { data: me, error: meError } = await admin.from("users").select("role,is_active").eq("id", caller.id).maybeSingle();
+  // A failed lookup is a server problem, not "you're not allowed" — say so instead of a misleading 403.
+  if (meError) return reply(500, { error: `Couldn't check your role: ${meError.message}` });
+  if (!me || !me.is_active || !["md", "admin"].includes(me.role)) return reply(403, { error: "Only MD or Admin can manage users." });
 
   let body;
   try { body = await req.json(); } catch (e) { return reply(400, { error: "Bad request." }); }

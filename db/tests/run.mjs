@@ -12,7 +12,7 @@ const fail = (m) => ok(false, m);
 
 // --- Supabase stand-ins: auth schema, roles, auth.uid()/auth.jwt()
 await db.exec(`
-  create role anon nologin; create role authenticated nologin;
+  create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
   create schema auth;
   create table auth.users (id uuid primary key default gen_random_uuid(), email text);
   create function auth.uid() returns uuid language sql stable as
@@ -27,7 +27,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -376,6 +376,13 @@ ok(mdNote.affectedRows === 1, 'MD can still add a note after creation');
 let anonNotes = null;
 try { await asAnon(() => db.query(`select * from app.work_order_notes`)); } catch (e) { anonNotes = e.message; }
 ok(/permission denied/.test(anonNotes || ''), 'anon cannot read notes: ' + anonNotes);
+
+// The Edge Function reads app.users as service_role: it must be able to (this was the bug behind
+// "Only MD or Admin can manage users" being shown to the MD), and it must still bypass RLS.
+await db.exec('set role service_role');
+const svcRows = (await db.query(`select role from app.users where id = $1`, [MD])).rows;
+await db.exec('reset role');
+ok(svcRows.length === 1 && svcRows[0].role === 'md', 'service_role can look up a user in app.users (Edge Function): ' + JSON.stringify(svcRows));
 
 // Guard against the mistake 007 fixed: every table in `app` must have RLS switched on.
 const noRls = (await db.query(`select relname from pg_class where relnamespace='app'::regnamespace and relkind='r' and not relrowsecurity order by 1`)).rows.map((r) => r.relname);
