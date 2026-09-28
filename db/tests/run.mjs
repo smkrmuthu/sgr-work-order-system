@@ -25,26 +25,20 @@ await db.exec(`
   alter default privileges in schema public grant execute on functions to anon, authenticated, public;
 `);
 
-for (const f of ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql']) {
+// The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
+// missing grant in the migrations fails these tests the way it would fail the real app.
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql'];
+for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
   catch (e) { fail(`${f} FAILED: ${e.message}`); throw e; }
 }
-// expose app schema + grant to app roles, mirroring what the Supabase dashboard's "Exposed schemas" +
-// default grants would give authenticated/anon (needed because we didn't run through the API gateway)
-await db.exec(`
-  grant usage on schema app to anon, authenticated;
-  grant all on all tables in schema app to anon, authenticated;
-  grant execute on all functions in schema app to anon, authenticated;
-  alter default privileges in schema app grant all on tables to anon, authenticated;
-  alter default privileges in schema app grant execute on functions to anon, authenticated;
-`);
 
-// re-run all four to prove idempotency
-for (const f of ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql']) {
+// re-run all to prove idempotency
+for (const f of MIGRATIONS) {
   await db.exec(fs.readFileSync(`${ROOT}/${f}`, 'utf8'));
 }
-ok(true, 'all four migrations re-run cleanly (idempotent)');
+ok(true, 'all migrations re-run cleanly (idempotent)');
 
 // ---------------------------------------------------------------- test users
 const CREATOR = '11111111-1111-4111-8111-111111111111';
@@ -71,8 +65,21 @@ const as = async (userId, fn) => {
 const asAnon = async (fn) => { await db.exec('set role anon'); try { return await fn(); } finally { await db.exec('reset role'); } };
 
 // ---------------------------------------------------------------- master data + RLS on it
-const anonCategories = await asAnon(() => db.query(`select * from app.categories`));
-ok(anonCategories.rows.length === 0, 'anon reads 0 rows anywhere (RLS default-deny confirmed)');
+// A signed-out visitor is refused outright (no schema/table privileges at all), and even with the
+// privileges RLS would return zero rows — either way they read nothing.
+let anonRead = null, anonRows = 0;
+try { anonRows = (await asAnon(() => db.query(`select * from app.categories`))).rows.length; }
+catch (e) { anonRead = e.message; }
+ok(anonRows === 0 && /permission denied/.test(anonRead || ''), 'anon reads nothing in app (' + anonRead + ')');
+
+// Internal functions must not be callable by a signed-in user directly (would let anyone burn WO numbers).
+let burnNumber = null;
+try { await as(CREATOR, () => db.query(`select app.next_wo_number()`)); } catch (e) { burnNumber = e.message; }
+ok(/permission denied/.test(burnNumber || ''), 'next_wo_number is not callable by a signed-in user: ' + burnNumber);
+let directCounter = null;
+try { await as(CREATOR, () => db.query(`update app.wo_number_counters set next_number = 999`)); } catch (e) { directCounter = e.message; }
+const counterUntouched = (await db.query(`select count(*) c from app.wo_number_counters where next_number = 999`)).rows[0].c;
+ok(Number(counterUntouched) === 0, 'a signed-in user cannot move the WO number counter directly' + (directCounter ? ' (' + directCounter + ')' : ' (0 rows via RLS)'));
 const creatorCategories = await as(CREATOR, () => db.query(`select code from app.categories order by code`));
 ok(creatorCategories.rows.length === 4 && creatorCategories.rows[0].code === 'CAT-001', 'signed-in user reads seeded categories (4)');
 const parts = await as(CREATOR, () => db.query(`select part_no from app.parts order by part_no`));

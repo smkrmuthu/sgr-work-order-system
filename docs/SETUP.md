@@ -9,7 +9,7 @@ Project: `https://zuvmolgdmhbgqonzpjcg.supabase.co`
 
 ## 1. Run the migrations
 
-Open the Supabase dashboard → **SQL Editor** → New query, and run these four
+Open the Supabase dashboard → **SQL Editor** → New query, and run these five
 files **in order**, pasting each one's full contents and clicking Run:
 
 1. `db/migrations/001_schema.sql` — schema, enums, tables
@@ -19,8 +19,11 @@ files **in order**, pasting each one's full contents and clicking Run:
    RBAC-enforcing triggers, production/QC/invoice RPCs
 4. `db/migrations/004_seed.sql` — starter categories, shifts, parts, and
    3 sample vendors so the app isn't empty on first login
+5. `db/migrations/005_grants.sql` — lets the signed-in API role reach the
+   `app` schema (without it: "permission denied for schema app") and locks
+   internal functions such as `next_wo_number` away from direct calls
 
-All four are safe to re-run (`create table if not exists`, `drop policy if
+All five are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
 
 ## 2. Expose the `app` schema to the API
@@ -32,21 +35,12 @@ then Save (without them, requests from the web app 404 or return nothing):
 1. **Exposed schemas** — add `app`.
 2. **Exposed tables** — turn on **every** table under `app` (all of them;
    exposing the schema alone does not expose its tables).
-3. **Exposed functions** — turn on only these under `app`:
-   - the 9 the web app calls directly: `save_draft`, `create_work_order`,
-     `approve_work_order`, `reject_work_order`, `record_production`,
-     `send_line_to_qc`, `record_qc_inspection`, `reopen_held`,
-     `generate_invoice`
-   - 3 that RLS/`reopen_held` run as the signed-in user, so they need
-     execute rights: `current_role`, `current_role_in`,
-     `recompute_work_order_status`
-
-   Leave the rest **off** — `next_wo_number` in particular (anyone who
-   could call it directly could burn Work Order numbers, leaving gaps),
-   plus the trigger functions (`handle_new_user`, `enforce_work_order_edit`,
-   `log_status_change`, `recompute_status_from_output_line`,
-   `recompute_status_from_qc`) and `fiscal_year_label`, which only ever run
-   inside the database.
+3. **Exposed functions** — turn on the `app` functions (the dashboard
+   toggles are only the outer layer). What a signed-in user may actually
+   *execute* is set precisely by `005_grants.sql`: the 9 functions the web
+   app calls, plus `current_role`, `current_role_in` and
+   `recompute_work_order_status`. Internal ones such as `next_wo_number` and
+   the trigger functions stay locked even if their toggle is on.
 
 ## 3. Create logins for the 6 roles
 
