@@ -23,7 +23,7 @@ export default function FinishedGoodsPage() {
   const canBill = profile?.role === 'md' || profile?.role === 'admin';
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<{ text: string; invoiceId: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [gst, setGst] = useState<Record<string, string>>({});
   const [supply, setSupply] = useState<Record<string, 'intra' | 'inter'>>({});
@@ -63,12 +63,12 @@ export default function FinishedGoodsPage() {
   async function createInvoice(g: Group) {
     const rate = Number(gst[g.order.id] ?? '18'), type = supply[g.order.id] ?? 'intra';
     if (!confirm(`Create an invoice for ${g.order.wo_number}?\n\n${g.lines.length} line(s) · ${inr(g.amount)} before GST @ ${rate}% (${type === 'intra' ? 'CGST + SGST' : 'IGST'}).\n\nThe goods then move to Ready for Dispatch.`)) return;
-    setBusyId(g.order.id); setError(''); setNotice('');
+    setBusyId(g.order.id); setError(''); setNotice(null);
     const { data, error } = await supabase.rpc('generate_invoice', { p_work_order_id: g.order.id, p_gst_rate: rate, p_supply_type: type });
     setBusyId(null);
     if (error) { setError(error.message); return; }
     const { data: inv } = await supabase.from('invoices').select('invoice_number').eq('id', data as string).maybeSingle();
-    setNotice(`Invoice ${inv?.invoice_number ?? ''} created for ${g.order.wo_number}. It is now under Ready for Dispatch.`);
+    setNotice({ text: `Invoice ${inv?.invoice_number ?? ''} created for ${g.order.wo_number}. It is now under Ready for Dispatch.`, invoiceId: data as string });
     load();
   }
 
@@ -82,7 +82,7 @@ export default function FinishedGoodsPage() {
       </div>
 
       {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{error}</div>}
-      {notice && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{notice} <Link href="/dispatch" className="font-bold underline">Go to Ready for Dispatch →</Link></div>}
+      {notice && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{notice.text} <Link href={`/invoice?id=${notice.invoiceId}`} className="font-bold underline">View invoice</Link> · <Link href="/dispatch" className="font-bold underline">Ready for Dispatch →</Link></div>}
 
       {groups === null && <p className="text-sm text-ink-500">Loading…</p>}
       {groups?.length === 0 && (

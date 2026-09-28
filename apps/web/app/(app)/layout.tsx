@@ -62,7 +62,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="bg-forest-900 text-white">
+      <header className="no-print bg-forest-900 text-white">
         <div className="mx-auto flex h-[60px] max-w-6xl items-center justify-between gap-5 px-7">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white">

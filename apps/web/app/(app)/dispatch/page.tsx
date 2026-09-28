@@ -53,7 +53,7 @@ export default function DispatchPage() {
 
   const Row = ({ r, showAction }: { r: InvoiceRow; showAction: boolean }) => (
     <tr className="border-t border-kraft-100">
-      <td className="px-3 py-2 font-mono font-bold">{r.invoice_number}</td>
+      <td className="px-3 py-2"><Link href={`/invoice?id=${r.id}`} className="font-mono font-bold text-forest-800 hover:underline" title="Open the invoice">{r.invoice_number}</Link></td>
       <td className="px-3 py-2">
         {r.work_order && <Link href={`/work-orders/detail?id=${r.work_order.id}`} className="font-mono font-bold text-forest-800 hover:underline">{r.work_order.wo_number}</Link>}
       </td>

@@ -426,21 +426,31 @@ function WorkOrderDetail() {
         </div>
       </section>
 
+      {invoices.length > 0 && (
+        <section className="rounded-lg border border-kraft-200 bg-white">
+          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">INVOICES</div>
+          <ul className="flex flex-col gap-1.5 p-5">
+            {invoices.map((inv) => (
+              <li key={inv.id} className="flex items-center justify-between rounded-md border border-kraft-200 bg-kraft-50 px-3 py-2 text-[13px]">
+                <span>
+                  <span className="font-mono font-bold">{inv.invoice_number}</span>
+                  <span className="ml-3 text-ink-500">{new Date(inv.invoice_date).toLocaleDateString('en-GB')}</span>
+                  <span className="ml-3 font-mono font-bold">₹{Number(inv.grand_total).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <span className={`ml-3 rounded-full border px-2 py-0.5 text-[10px] font-bold ${inv.dispatched_at ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
+                    {inv.dispatched_at ? 'Dispatched' : 'Ready for dispatch'}
+                  </span>
+                </span>
+                <Link href={`/invoice?id=${inv.id}`} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50">View / Print</Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {isMd && (
         <section className="rounded-lg border border-kraft-200 bg-white">
           <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">INVOICE</div>
           <div className="p-5">
-            {invoices.map((inv) => (
-              <div key={inv.id} className="mb-4 rounded-md border border-kraft-300 bg-kraft-50 p-4 text-xs">
-                <div className="mb-2 font-bold">{inv.invoice_number} · {inv.invoice_date}</div>
-                {inv.lines.map((l) => (
-                  <div key={l.id} className="flex justify-between py-0.5">
-                    <span>{l.description} × {l.qty}</span><span className="font-mono">₹{Number(l.amount).toLocaleString('en-IN')}</span>
-                  </div>
-                ))}
-                <div className="mt-2 border-t border-kraft-300 pt-2 font-mono font-bold">Grand Total: ₹{Number(inv.grand_total).toLocaleString('en-IN')}</div>
-              </div>
-            ))}
             <div className="flex flex-wrap items-end gap-3">
               <Field label="GST Rate">
                 <select value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="input">

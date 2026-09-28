@@ -75,3 +75,10 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .float-slow, .float-mid, .drift-a, .drift-b, .fade-up, .step-chip, .spinner { animation: none; }
 }
+
+/* Printing an invoice: only the invoice, no app chrome. */
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; }
+  main { max-width: none !important; padding: 0 !important; }
+}
