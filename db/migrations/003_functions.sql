@@ -82,8 +82,9 @@ begin
   return v_id;
 end $$;
 
--- Promotes a draft to a real, numbered Work Order. Validates §10's minimum bar, then hands it straight
--- to the Production floor (CONFIRMED 28 Sep 2026: no MD sign-off gate, no separate release step).
+-- Promotes a draft to a real, numbered Work Order and sends it to Finance for approval (UPDATED
+-- 28 Sep 2026: a created Work Order no longer goes straight to the production floor — it sits in
+-- 'pending_finance_approval' until app.approve_work_order() releases it). Validates §10's minimum bar.
 create or replace function app.create_work_order(p_id uuid) returns app.work_orders
 language plpgsql security definer set search_path = app, pg_temp as $$
 declare
@@ -103,16 +104,79 @@ begin
   if v_line_count = 0 then raise exception 'Add at least one line item before creating.'; end if;
 
   perform set_config('app.bypass_edit_check', 'true', true);
-  -- status_history + the "created" notification are NOT inserted here: the work_orders_status_log
-  -- AFTER UPDATE trigger (below) fires on this same UPDATE and logs both generically for every
-  -- status change, wherever it originates. Inserting them here too would double them up.
+  -- status_history + the notification are NOT inserted here: the work_orders_status_log AFTER
+  -- UPDATE trigger (below) fires on this same UPDATE and logs both generically for every status
+  -- change, wherever it originates. Inserting them here too would double them up.
+  -- coalesce(wo_number, ...): a Work Order rejected by Finance comes back here as a draft and keeps
+  -- its original number on resubmission rather than burning a second one from the counter.
   update app.work_orders
-     set wo_number = app.next_wo_number(current_date), status = 'created', updated_by = auth.uid(), updated_at = now()
+     set wo_number = coalesce(wo_number, app.next_wo_number(current_date)),
+         status = 'pending_finance_approval', updated_by = auth.uid(), updated_at = now()
    where id = p_id
   returning * into v_wo;
 
   return v_wo;
 end $$;
+
+-- ---------------------------------------------------------------- Finance approval (added 28 Sep 2026)
+-- A created Work Order is held here until Finance reviews it. Approve releases it to the production
+-- floor exactly as 'created' always has (no other behaviour changes); reject sends it back to the
+-- Creator as an editable draft, with a reason, rather than a dead end.
+create or replace function app.approve_work_order(p_work_order_id uuid, p_comments text default null) returns app.work_orders
+language plpgsql security definer set search_path = app, pg_temp as $$
+declare v_wo app.work_orders;
+begin
+  if not app.current_role_in('finance', 'admin') then raise exception 'Only Finance may approve a Work Order.'; end if;
+
+  select * into v_wo from app.work_orders where id = p_work_order_id for update;
+  if v_wo is null then raise exception 'Work order % not found', p_work_order_id; end if;
+  if v_wo.status <> 'pending_finance_approval' then
+    raise exception 'Work order % is not awaiting Finance approval.', v_wo.wo_number;
+  end if;
+
+  insert into app.finance_approvals (work_order_id, action, comments, actor)
+    values (p_work_order_id, 'approved', p_comments, auth.uid());
+
+  perform set_config('app.bypass_edit_check', 'true', true);
+  update app.work_orders set status = 'created', updated_by = auth.uid(), updated_at = now()
+   where id = p_work_order_id
+  returning * into v_wo;
+
+  return v_wo;
+end $$;
+
+create or replace function app.reject_work_order(p_work_order_id uuid, p_reason text) returns app.work_orders
+language plpgsql security definer set search_path = app, pg_temp as $$
+declare v_wo app.work_orders;
+begin
+  if not app.current_role_in('finance', 'admin') then raise exception 'Only Finance may reject a Work Order.'; end if;
+  if p_reason is null or btrim(p_reason) = '' then
+    raise exception 'A reason is required to reject a Work Order.';
+  end if;
+
+  select * into v_wo from app.work_orders where id = p_work_order_id for update;
+  if v_wo is null then raise exception 'Work order % not found', p_work_order_id; end if;
+  if v_wo.status <> 'pending_finance_approval' then
+    raise exception 'Work order % is not awaiting Finance approval.', v_wo.wo_number;
+  end if;
+
+  insert into app.finance_approvals (work_order_id, action, comments, actor)
+    values (p_work_order_id, 'rejected', p_reason, auth.uid());
+
+  perform set_config('app.bypass_edit_check', 'true', true);
+  -- Back to 'draft': the Creator can fix and resubmit through the exact same create_work_order()
+  -- path, which reuses this same wo_number rather than assigning a new one.
+  update app.work_orders set status = 'draft', updated_by = auth.uid(), updated_at = now()
+   where id = p_work_order_id
+  returning * into v_wo;
+
+  return v_wo;
+end $$;
+
+revoke all on function app.approve_work_order(uuid, text) from public, anon;
+grant execute on function app.approve_work_order(uuid, text) to authenticated;
+revoke all on function app.reject_work_order(uuid, text) from public, anon;
+grant execute on function app.reject_work_order(uuid, text) to authenticated;
 
 -- ---------------------------------------------------------------- MD edits -> automatic revisioning (§6)
 -- Column-level enforcement RLS can't express: Planner may change ONLY expected_completion_date;
@@ -204,7 +268,9 @@ create trigger work_orders_status_log after update on app.work_orders
 --   something submitted, not fully inspected  -> 'qc_pending'
 --   some inspected (accepted or held), not all ordered qty accepted -> 'partially_qc_approved'
 --   all ordered qty accepted                  -> 'ready_for_dispatch'
--- 'draft', 'completed' and 'cancelled' are set explicitly, never recomputed.
+-- 'draft', 'pending_finance_approval', 'completed' and 'cancelled' are set explicitly, never
+-- recomputed from production/QC activity (there shouldn't be any yet for the first two — see
+-- app.record_production()'s guard — but this stays explicit rather than relying on that alone).
 create or replace function app.recompute_work_order_status(p_work_order_id uuid) returns void
 language plpgsql security definer set search_path = app, pg_temp as $$
 declare
@@ -212,7 +278,7 @@ declare
   v_ordered numeric; v_produced numeric; v_submitted numeric; v_accepted numeric;
 begin
   select status into v_status from app.work_orders where id = p_work_order_id;
-  if v_status in ('draft', 'completed', 'cancelled') then return; end if;
+  if v_status in ('draft', 'pending_finance_approval', 'completed', 'cancelled') then return; end if;
 
   select coalesce(sum(l.qty), 0) into v_ordered from app.work_order_lines l where l.work_order_id = p_work_order_id;
   select coalesce(sum(o.qty), 0) into v_produced from app.production_output_lines o
@@ -271,9 +337,19 @@ declare
   v_line record;
   v_produced_so_far numeric;
   v_qty numeric;
+  v_wo_status app.wo_status;
 begin
   if not app.current_role_in('planner', 'md', 'admin') then
     raise exception 'Only the Production Planner (or MD) may record production.';
+  end if;
+
+  select status into v_wo_status from app.work_orders where id = (p->>'work_order_id')::uuid;
+  if v_wo_status is null then raise exception 'Work order % not found', (p->>'work_order_id')::uuid; end if;
+  if v_wo_status = 'pending_finance_approval' then
+    raise exception 'This Work Order is awaiting Finance approval and cannot start production yet.';
+  end if;
+  if v_wo_status in ('draft', 'cancelled', 'completed') then
+    raise exception 'This Work Order is % and cannot record production.', v_wo_status;
   end if;
 
   insert into app.production_entries (work_order_id, production_date, shift_id, labour_count, planner_id)
@@ -374,8 +450,15 @@ declare
   v_amount numeric;
   v_cgst numeric := 0; v_sgst numeric := 0; v_igst numeric := 0; v_total numeric;
   v_seq int;
+  v_status app.wo_status;
 begin
   if not app.current_role_in('md', 'admin') then raise exception 'Only MD may generate an invoice.'; end if;
+
+  select status into v_status from app.work_orders where id = p_work_order_id;
+  if v_status is null then raise exception 'Work order % not found', p_work_order_id; end if;
+  if v_status in ('draft', 'pending_finance_approval') then
+    raise exception 'Cannot generate an invoice before this Work Order is created and approved by Finance.';
+  end if;
 
   insert into app.wo_number_counters (fiscal_year_start, next_number) values (-1, 2)
   on conflict (fiscal_year_start) do update set next_number = app.wo_number_counters.next_number + 1

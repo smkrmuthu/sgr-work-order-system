@@ -105,7 +105,8 @@ create policy work_order_lines_write on app.work_order_lines for all to authenti
 do $$
 declare t text;
 begin
-  foreach t in array array['work_order_revisions', 'status_history', 'completion_date_changes', 'audit_events'] loop
+  foreach t in array array['work_order_revisions', 'status_history', 'completion_date_changes',
+                            'finance_approvals', 'audit_events'] loop
     execute format('alter table app.%I enable row level security', t);
     execute format('drop policy if exists %1$I_select on app.%1$I', t);
     execute format('create policy %1$I_select on app.%1$I for select to authenticated using (true)', t);

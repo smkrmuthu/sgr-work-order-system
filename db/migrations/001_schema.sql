@@ -9,14 +9,17 @@ create schema if not exists app;
 
 -- ---------------------------------------------------------------- enums
 do $$ begin
-  create type app.user_role as enum ('creator', 'md', 'planner', 'qc', 'admin');
+  create type app.user_role as enum ('creator', 'md', 'planner', 'qc', 'finance', 'admin');
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-  -- v1.3 §7. No GM/JMD chain, no MD sign-off gate (confirmed 28 Sep 2026): Created goes straight
-  -- to the production floor, so there is no separate "ready_for_production" state.
+  -- v1.3 §7. No GM/JMD chain, no MD sign-off gate (confirmed 28 Sep 2026): a Work Order goes
+  -- straight from Created to the production floor. UPDATED 28 Sep 2026: a Finance approval gate
+  -- was added between the two — a created Work Order now sits in 'pending_finance_approval' until
+  -- Finance approves it (-> 'created', unlocking production) or rejects it (-> 'draft', back to the
+  -- Creator to fix and resubmit). See app.approve_work_order() / app.reject_work_order().
   create type app.wo_status as enum (
-    'draft', 'created', 'in_production', 'qc_pending',
+    'draft', 'pending_finance_approval', 'created', 'in_production', 'qc_pending',
     'partially_qc_approved', 'ready_for_dispatch', 'completed', 'cancelled'
   );
 exception when duplicate_object then null; end $$;
@@ -199,6 +202,18 @@ create table if not exists app.completion_date_changes (
   changed_by     uuid references app.users(id),
   changed_at     timestamptz not null default now()
 );
+
+-- Append-only Finance approval trail (added 28 Sep 2026). One row per decision; the Work Order's
+-- current gate state is just its status ('pending_finance_approval' / rejected-back-to-'draft').
+create table if not exists app.finance_approvals (
+  id             uuid primary key default gen_random_uuid(),
+  work_order_id  uuid not null references app.work_orders(id) on delete cascade,
+  action         text not null check (action in ('approved', 'rejected')),
+  comments       text,                      -- required (enforced in the RPC) when action = 'rejected'
+  actor          uuid references app.users(id),
+  created_at     timestamptz not null default now()
+);
+create index if not exists finance_approvals_wo_idx on app.finance_approvals (work_order_id);
 
 -- ---------------------------------------------------------------- production (§4)
 create table if not exists app.production_entries (

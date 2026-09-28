@@ -64,9 +64,9 @@ prototype already uses this pattern for its `manage-users` function.
 
 - **RLS is the authorization boundary, not the UI.** Every table denies
   by default; policies grant exactly what each role (`creator`, `planner`,
-  `qc`, `md`, `admin`) needs. The nav hides tabs a role can't use, but
-  that's convenience — hitting a hidden URL directly still hits the same
-  server-enforced policies.
+  `qc`, `finance`, `md`, `admin`) needs. The nav hides tabs a role can't
+  use, but that's convenience — hitting a hidden URL directly still hits
+  the same server-enforced policies.
 - **Column-level RBAC via triggers.** RLS is row-level only, so
   `app.enforce_work_order_edit()` (a `BEFORE UPDATE` trigger) additionally
   checks *which columns* changed: a Production Planner may change only
@@ -74,17 +74,26 @@ prototype already uses this pattern for its `manage-users` function.
   (loudly, not silently discarded), an MD/admin edit after `created`
   auto-bumps `revision` and snapshots the pre-edit row into
   `work_order_revisions`.
-- **No MD sign-off gate** (confirmed 28 Sep 2026): a created Work Order
-  goes straight to the production floor. There's no `ready_for_production`
-  state in `app.wo_status`.
+- **No MD sign-off gate** (confirmed 28 Sep 2026): the MD never has to
+  separately release a Work Order.
+- **Finance approval gate** (added 28 Sep 2026): a created Work Order
+  instead sits in `pending_finance_approval` — a new status between
+  `draft` and `created` — until Finance reviews it. `app.approve_work_order()`
+  releases it to the production floor (-> `created`, unlocking
+  `app.record_production()`, which otherwise rejects it); `app.reject_work_order()`
+  sends it back to the Creator as an editable `draft` with a required
+  reason, keeping its original `wo_number` for resubmission. Every
+  decision is appended to `app.finance_approvals` (read-only to clients,
+  written only by those two `SECURITY DEFINER` functions).
 - **QC held-quantity model:** inspections split into `accepted_qty` /
   `held_qty` rather than a binary pass/fail, since there's no formal
   reject/rework workflow yet — held quantity is never silently counted as
   accepted or dispatch-ready, and can be reopened back into the awaiting
   pool via `app.reopen_held()`.
 - **Append-only history everywhere it matters:** `work_order_revisions`,
-  `status_history`, `completion_date_changes`, `audit_events` are
-  insert-only from triggers; clients can read them but never write or
+  `status_history`, `completion_date_changes`, `finance_approvals`,
+  `audit_events` are insert-only (from triggers, or from the handful of
+  `SECURITY DEFINER` RPCs); clients can read them but never write or
   delete them.
 
 ## Getting started

@@ -29,7 +29,9 @@ export default function PlannerPage() {
   const selected = orders.find((o) => o.id === selectedId) ?? null;
 
   const loadOrders = useCallback(async () => {
-    const { data } = await supabase.from('work_orders').select('*').not('status', 'in', '("draft","completed","cancelled")').order('created_at');
+    // pending_finance_approval is excluded too: production can't be recorded until Finance approves.
+    const { data } = await supabase.from('work_orders').select('*')
+      .not('status', 'in', '("draft","pending_finance_approval","completed","cancelled")').order('created_at');
     setOrders(data ?? []);
     if (!selectedId && data && data.length) setSelectedId(data[0]!.id);
   }, [selectedId]);

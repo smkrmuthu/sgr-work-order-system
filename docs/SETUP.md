@@ -30,7 +30,7 @@ Go to **Project Settings → Data API → Exposed schemas** and add `app` to
 the list, then save. Without this step every request from the web app will
 404.
 
-## 3. Create logins for the 5 roles
+## 3. Create logins for the 6 roles
 
 The prototype already has `md@sgr.com`, `prod@sgr.com`, `qa@sgr.com` as
 Supabase Auth users — but this app's `app.users` table is separate from the
@@ -45,10 +45,11 @@ from auth.users where email = 'md@sgr.com'
 on conflict (id) do update set role = excluded.role;
 ```
 
-Repeat per person with the right `role` (`creator`, `planner`, `qc`, `md`,
-`admin`). For anyone brand new, just have them sign up in the app and then
-run one `update app.users set role = '...' where email = '...'` to assign
-their role (new sign-ups default to `creator`).
+Repeat per person with the right `role` (`creator`, `planner`, `qc`,
+`finance`, `md`, `admin`). For anyone brand new — including a new **Finance**
+login, e.g. `finance@sgr.com` — just have them sign up in the app and then
+run one `update app.users set role = 'finance' where email = '...'` to
+assign their role (new sign-ups default to `creator`).
 
 ## 4. Point the web app at the project
 
@@ -72,6 +73,12 @@ npm run dev
 
 Open http://localhost:3000, sign in, and you should land on **Work
 Orders**. What you see in the nav depends on your role (Work Orders: all
-roles · Production Planner: planner/md/admin · QC: qc/md/admin) — that's a
-convenience, not the security boundary; RLS enforces the same rules
-server-side even if someone hits a hidden URL directly.
+roles · Finance Approval: finance/md/admin · Production Planner:
+planner/md/admin · QC: qc/md/admin) — that's a convenience, not the
+security boundary; RLS enforces the same rules server-side even if someone
+hits a hidden URL directly.
+
+A newly-created Work Order now sits in **Pending Finance Approval** —
+production can't start until Finance approves it (or it's rejected back to
+the Creator as a draft to fix and resubmit) — see `README.md` for the
+full lifecycle.

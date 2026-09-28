@@ -1,0 +1,13 @@
+{
+  "name": "@sgr/db-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Runs db/migrations against a real embedded Postgres (PGlite) and asserts RLS, RBAC and business-rule behaviour — never trust a migration without executing it.",
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  }
+}

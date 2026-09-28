@@ -1,7 +1,9 @@
 import type { WoStatus } from '@sgr/types';
 
 // Same lifecycle across every screen (v1.3 §7), one source of truth for its label/order/color.
+// UPDATED 28 Sep 2026: a Finance approval gate sits between Draft and Created — see README.
 export const STATUS_ORDER: WoStatus[] = [
+  'pending_finance_approval',
   'created',
   'in_production',
   'qc_pending',
@@ -12,6 +14,7 @@ export const STATUS_ORDER: WoStatus[] = [
 
 export const STATUS_LABEL: Record<WoStatus, string> = {
   draft: 'Draft',
+  pending_finance_approval: 'Pending Finance Approval',
   created: 'Created',
   in_production: 'In Production',
   qc_pending: 'QC Pending',
@@ -23,6 +26,7 @@ export const STATUS_LABEL: Record<WoStatus, string> = {
 
 export const STATUS_BADGE_CLASS: Record<WoStatus, string> = {
   draft: 'bg-kraft-100 text-kraft-900 border-kraft-300',
+  pending_finance_approval: 'bg-violet-50 text-violet-800 border-violet-200',
   created: 'bg-amber-50 text-amber-800 border-amber-200',
   in_production: 'bg-amber-50 text-amber-800 border-amber-200',
   qc_pending: 'bg-amber-50 text-amber-800 border-amber-200',

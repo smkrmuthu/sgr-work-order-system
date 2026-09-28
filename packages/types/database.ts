@@ -4,10 +4,11 @@
 // package. Regenerate with `supabase gen types typescript --schema app` once the CLI is linked to the
 // project, and diff the result against this file rather than trusting either blindly.
 
-export type UserRole = 'creator' | 'md' | 'planner' | 'qc' | 'admin';
+export type UserRole = 'creator' | 'md' | 'planner' | 'qc' | 'finance' | 'admin';
 
 export type WoStatus =
   | 'draft'
+  | 'pending_finance_approval' // added 28 Sep 2026 — Finance gate between Draft and Created
   | 'created'
   | 'in_production'
   | 'qc_pending'
@@ -245,6 +246,15 @@ export interface Notification {
   work_order_id: string | null;
   message: string;
   is_read: boolean;
+  created_at: string;
+}
+
+export interface FinanceApproval {
+  id: string;
+  work_order_id: string;
+  action: 'approved' | 'rejected';
+  comments: string | null;
+  actor: string | null;
   created_at: string;
 }
 

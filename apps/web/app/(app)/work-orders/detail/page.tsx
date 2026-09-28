@@ -4,10 +4,10 @@ import { Suspense, useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { STATUS_LABEL, STATUS_ORDER } from '@/lib/statusLabels';
+import { STATUS_LABEL, STATUS_ORDER, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type {
   WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
-  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser,
+  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval,
 } from '@sgr/types';
 
 interface LineWithProgress extends WorkOrderLine {
@@ -31,15 +31,21 @@ function WorkOrderDetail() {
   const id = useSearchParams().get('id') ?? '';
   const { profile } = useAuth();
   const isMd = profile?.role === 'md' || profile?.role === 'admin';
+  const isFinance = profile?.role === 'finance' || profile?.role === 'md' || profile?.role === 'admin';
 
   const [wo, setWo] = useState<WorkOrder | null>(null);
   const [partner, setPartner] = useState<BusinessPartner | null>(null);
   const [location, setLocation] = useState<DeliveryLocation | null>(null);
   const [lines, setLines] = useState<LineWithProgress[]>([]);
   const [revisions, setRevisions] = useState<WorkOrderRevision[]>([]);
+  const [financeApprovals, setFinanceApprovals] = useState<FinanceApproval[]>([]);
   const [invoices, setInvoices] = useState<(Invoice & { lines: InvoiceLine[] })[]>([]);
   const [users, setUsers] = useState<Record<string, AppUser>>({});
   const [error, setError] = useState('');
+
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [financeBusy, setFinanceBusy] = useState(false);
 
   const [editing, setEditing] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState('');
@@ -57,16 +63,18 @@ function WorkOrderDetail() {
     if (!w) { setError('Work order not found.'); return; }
     setWo(w);
 
-    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: allUsers }] = await Promise.all([
+    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: fApprovals }, { data: allUsers }] = await Promise.all([
       w.partner_id ? supabase.from('business_partners').select('*').eq('id', w.partner_id).maybeSingle() : Promise.resolve({ data: null }),
       w.delivery_location_id ? supabase.from('delivery_locations').select('*').eq('id', w.delivery_location_id).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('work_order_lines').select('*').eq('work_order_id', id).order('line_no'),
       supabase.from('work_order_revisions').select('*').eq('work_order_id', id).order('revision'),
+      supabase.from('finance_approvals').select('*').eq('work_order_id', id).order('created_at'),
       supabase.from('users').select('*'),
     ]);
     setPartner(p ?? null);
     setLocation(loc ?? null);
     setRevisions(revs ?? []);
+    setFinanceApprovals(fApprovals ?? []);
     setUsers(Object.fromEntries((allUsers ?? []).map((u) => [u.id, u])));
 
     const lineIds = (ls ?? []).map((l) => l.id);
@@ -130,6 +138,25 @@ function WorkOrderDetail() {
     load();
   }
 
+  async function approveWo() {
+    if (!wo) return;
+    setFinanceBusy(true); setError('');
+    const { error } = await supabase.rpc('approve_work_order', { p_work_order_id: wo.id, p_comments: null });
+    setFinanceBusy(false);
+    if (error) { setError(error.message); return; }
+    load();
+  }
+
+  async function rejectWo() {
+    if (!wo || !rejectReason.trim()) { setError('Enter a reason before rejecting.'); return; }
+    setFinanceBusy(true); setError('');
+    const { error } = await supabase.rpc('reject_work_order', { p_work_order_id: wo.id, p_reason: rejectReason.trim() });
+    setFinanceBusy(false);
+    if (error) { setError(error.message); return; }
+    setRejecting(false); setRejectReason('');
+    load();
+  }
+
   if (error) return <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>;
   if (!wo) return <p className="text-sm text-ink-500">Loading…</p>;
 
@@ -148,7 +175,7 @@ function WorkOrderDetail() {
             <div className="text-xs text-ink-500">{partner ? `${partner.code} — ${partner.name}` : '—'} · {location?.label ?? '—'}</div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800">{STATUS_LABEL[wo.status]}</span>
+            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_BADGE_CLASS[wo.status]}`}>{STATUS_LABEL[wo.status]}</span>
             <span className="rounded-full border border-forest-100 bg-forest-50 px-2 py-0.5 font-mono text-[11px] font-bold text-forest-800">REVISION R{wo.revision}</span>
           </div>
         </div>
@@ -178,6 +205,34 @@ function WorkOrderDetail() {
               <Field label="Document Reference"><input value={docRef} onChange={(e) => setDocRef(e.target.value)} className="input" /></Field>
               <Info label="Expected Completion" value={wo.expected_completion_date ?? '—'} hint="Planner sets this" />
               <Info label="Vendor / Location" value={`${partner?.code ?? ''} · ${location?.label ?? ''}`} hint="Fixed after creation" />
+            </div>
+          )}
+
+          {isFinance && wo.status === 'pending_finance_approval' && (
+            <div className="mt-4 rounded-md border border-violet-200 bg-violet-50 p-4">
+              <div className="mb-2 text-sm font-bold text-violet-900">Awaiting Finance Approval</div>
+              <p className="mb-3 text-xs text-violet-800">
+                Production cannot start until this Work Order is approved. Rejecting sends it back to
+                the Creator as an editable draft with your reason attached.
+              </p>
+              {!rejecting ? (
+                <div className="flex gap-2">
+                  <button onClick={approveWo} disabled={financeBusy} className="btn-primary">{financeBusy ? 'Working…' : 'Approve'}</button>
+                  <button onClick={() => setRejecting(true)} className="btn-secondary">Reject</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder="Reason for rejection…"
+                    className="input flex-1"
+                  />
+                  <button onClick={rejectWo} disabled={financeBusy} className="btn-primary">{financeBusy ? 'Working…' : 'Confirm Reject'}</button>
+                  <button onClick={() => { setRejecting(false); setRejectReason(''); }} className="btn-secondary">Cancel</button>
+                </div>
+              )}
             </div>
           )}
 
@@ -243,6 +298,23 @@ function WorkOrderDetail() {
           </table>
         </div>
       </section>
+
+      {financeApprovals.length > 0 && (
+        <section className="rounded-lg border border-kraft-200 bg-white">
+          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">FINANCE APPROVAL HISTORY</div>
+          <div className="p-5">
+            {financeApprovals.map((f) => (
+              <div key={f.id} className="border-b border-kraft-100 py-2 text-xs last:border-none">
+                <div className="font-bold">
+                  {f.action === 'approved' ? 'Approved' : 'Rejected'}
+                  {f.comments && <span className="font-normal text-ink-700"> — {f.comments}</span>}
+                </div>
+                <div className="text-ink-500">{users[f.actor ?? '']?.email ?? f.actor} · {new Date(f.created_at).toLocaleString('en-GB')}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-lg border border-kraft-200 bg-white">
         <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">REVISION &amp; AUDIT HISTORY</div>

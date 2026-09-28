@@ -4,12 +4,14 @@
   "description": "SGR Moulds India — production Work Order Management System (Phase 1)",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "db/tests"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",
     "build": "npm run build --workspace=apps/web",
-    "typecheck": "npm run typecheck --workspace=apps/web"
+    "typecheck": "npm run typecheck --workspace=apps/web",
+    "db:test": "npm run test --workspace=db/tests"
   },
   "engines": {
     "node": ">=20"

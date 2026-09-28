@@ -122,7 +122,8 @@ export default function NewWorkOrderPage() {
         <h1 className="text-xl font-bold text-forest-900">New Work Order</h1>
         <p className="text-sm text-ink-500">
           Fill in the details, then add the first line item. Saved as a Draft as you go; the Work Order number is
-          assigned when you press Create (v1.3 §3.4) — it then goes straight to the Production floor.
+          assigned when you press Create (v1.3 §3.4) — it then goes to Finance for approval before
+          production can start.
         </p>
       </div>
 
