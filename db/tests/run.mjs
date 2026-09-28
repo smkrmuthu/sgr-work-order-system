@@ -53,13 +53,15 @@ const PLANNER = '33333333-3333-4333-8333-333333333333';
 const QC = '44444444-4444-4444-8444-444444444444';
 const OTHER_CREATOR = '55555555-5555-4555-8555-555555555555';
 const FINANCE = '66666666-6666-4666-8666-666666666666';
+const ADMIN = '77777777-7777-4777-8777-777777777777';
 
-await db.query(`insert into auth.users (id, email) values ($1,'creator@sgr.test'),($2,'md@sgr.test'),($3,'planner@sgr.test'),($4,'qc@sgr.test'),($5,'other@sgr.test'),($6,'finance@sgr.test')`,
-  [CREATOR, MD, PLANNER, QC, OTHER_CREATOR, FINANCE]);
+await db.query(`insert into auth.users (id, email) values ($1,'creator@sgr.test'),($2,'md@sgr.test'),($3,'planner@sgr.test'),($4,'qc@sgr.test'),($5,'other@sgr.test'),($6,'finance@sgr.test'),($7,'admin@sgr.test')`,
+  [CREATOR, MD, PLANNER, QC, OTHER_CREATOR, FINANCE, ADMIN]);
 await db.query(`update app.users set role='md' where id=$1`, [MD]);
 await db.query(`update app.users set role='planner' where id=$1`, [PLANNER]);
 await db.query(`update app.users set role='qc' where id=$1`, [QC]);
 await db.query(`update app.users set role='finance' where id=$1`, [FINANCE]);
+await db.query(`update app.users set role='admin' where id=$1`, [ADMIN]);
 ok((await db.query(`select role from app.users where id=$1`, [CREATOR])).rows[0].role === 'creator', 'new login defaults to role=creator');
 
 const as = async (userId, fn) => {
@@ -287,5 +289,41 @@ let noDelete = null;
 try { await as(MD, () => db.query(`delete from app.work_orders where id=$1`, [draftId])); } catch (e) { noDelete = e.message; }
 const stillThere = (await as(CREATOR, () => db.query(`select 1 from app.work_orders where id=$1`, [draftId]))).rows.length;
 ok(stillThere === 1, 'no delete policy exists on work_orders — MD\'s delete affected 0 rows, record still present' + (noDelete ? ' (' + noDelete + ')' : ''));
+
+// ---------------------------------------------------------------- Users page support (added 28 Sep 2026)
+// MD can now manage users directly (RLS), not just Admin — the Edge Function adds the "can't remove
+// the last MD/Admin" / "can't self-delete" rails on top; RLS here only governs who may touch the row.
+await as(MD, () => db.query(`update app.users set role='finance' where id=$1`, [QC]));
+ok((await as(CREATOR, () => db.query(`select role from app.users where id=$1`, [QC]))).rows[0].role === 'finance',
+   'MD can change another user\'s role directly (RLS broadened from Admin-only)');
+await as(MD, () => db.query(`update app.users set role='qc' where id=$1`, [QC])); // put it back
+
+let creatorCannotChangeRoles = null;
+const creatorRoleEdit = await as(CREATOR, () => db.query(`update app.users set role='admin' where id=$1`, [QC]));
+ok(creatorRoleEdit.affectedRows === 0, 'Creator (not MD/Admin) cannot change another user\'s role (0 rows affected by RLS)');
+
+// is_active=false is treated as "no role" by app.current_role()/current_role_in() — the single choke
+// point every RLS policy and RBAC check in 002_rls.sql/003_functions.sql is built on.
+await as(ADMIN, () => db.query(`update app.users set is_active=false where id=$1`, [MD]));
+let deactivatedMdBlocked = null;
+try { await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [created2.id])); }
+catch (e) { deactivatedMdBlocked = e.message; }
+ok(!!deactivatedMdBlocked, 'a deactivated MD is treated as roleless — an MD-only action is refused: ' + deactivatedMdBlocked);
+const deactivatedStillReads = await as(MD, () => db.query(`select 1 from app.work_orders where id=$1`, [draftId]));
+ok(deactivatedStillReads.rows.length === 1, 'a deactivated user can still read (broad SELECT policies are unaffected, only role-gated actions are)');
+
+// A deactivated MD can't reactivate themself. users_update_md_admin's USING fails outright (their own
+// current_role_in() is now false); users_update_own_name's USING still matches (id = auth.uid()), but
+// its WITH CHECK pins is_active unchanged, so Postgres raises rather than silently affecting 0 rows.
+let selfReactivateErr = null;
+try { await as(MD, () => db.query(`update app.users set is_active=true where id=$1`, [MD])); }
+catch (e) { selfReactivateErr = e.message; }
+const stillDeactivated = (await as(CREATOR, () => db.query(`select is_active from app.users where id=$1`, [MD]))).rows[0].is_active;
+ok(!!selfReactivateErr && stillDeactivated === false,
+   'a deactivated MD cannot reactivate themself (' + selfReactivateErr + ') — needs another active MD/Admin');
+
+await as(ADMIN, () => db.query(`update app.users set is_active=true where id=$1`, [MD]));
+const reactivated = (await as(CREATOR, () => db.query(`select is_active from app.users where id=$1`, [MD]))).rows[0].is_active;
+ok(reactivated === true, 'Admin reactivates the MD: ' + reactivated);
 
 console.log('\nDone.');

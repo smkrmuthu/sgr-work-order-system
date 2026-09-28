@@ -42,9 +42,18 @@ sgr-work-order-system/
 │                           called through Supabase's auto REST API
 │   004_seed.sql           starter categories/shifts/parts + sample
 │                           vendors
+├── db/tests/             A real embedded Postgres (PGlite) runs every
+│                        migration and asserts RLS/RBAC/business-rule
+│                        behaviour end to end — `npm run db:test`, CI-wired
+├── supabase/functions/  The one server-only exception (see below):
+│   manage-app-users/      create/edit/deactivate/delete a login — needs
+│                           the service_role key, so it can't live in the
+│                           browser. MD/Admin only.
 ├── docs/SETUP.md        Step-by-step: apply the migrations, expose the
-│                        schema, wire up env vars, run the app
-└── .github/workflows/   CI: install, typecheck, build on every push/PR
+│                        schema, deploy the function, wire up env vars,
+│                        run the app
+└── .github/workflows/   CI (typecheck/build/db:test) + deploy to GitHub
+                         Pages on every push to main
 ```
 
 ### Why no hand-built API service
@@ -55,10 +64,12 @@ with the schema for no real benefit — Supabase already generates a REST
 API from the schema (PostgREST) and Postgres functions cover every
 multi-step business rule (creating a WO with an atomic financial-year
 number, recording production with an over-production guard, splitting QC
-results into accepted/held, generating a GST invoice). If a genuinely
-server-only concern shows up later (a scheduled job, a third-party
-webhook, a heavy report), it's one Supabase Edge Function away — the
-prototype already uses this pattern for its `manage-users` function.
+results into accepted/held, generating a GST invoice). The one thing that
+genuinely can't run in the browser — creating a login, which needs the
+service_role key — is a single Supabase Edge Function
+(`supabase/functions/manage-app-users`), the same pattern the prototype
+already uses for its own `manage-users` function (deliberately a
+different name, so the two never collide on the shared Supabase project).
 
 ### Key design decisions
 
@@ -95,6 +106,16 @@ prototype already uses this pattern for its `manage-users` function.
   `audit_events` are insert-only (from triggers, or from the handful of
   `SECURITY DEFINER` RPCs); clients can read them but never write or
   delete them.
+- **User management (added 28 Sep 2026):** MD and Admin can add, edit,
+  deactivate or delete a login from the **Users** page, via the
+  `manage-app-users` Edge Function (creating a login needs the
+  service_role key). Deactivating someone (`is_active = false`) isn't
+  cosmetic: `app.current_role()`/`app.current_role_in()` — the single
+  choke point every RLS policy and RBAC check is built on — treat an
+  inactive user as having no role at all, and a deactivated person can't
+  even reactivate themself (only another active MD/Admin can). There must
+  always be at least one active MD and one active Admin; nobody can
+  delete their own login.
 
 ## Live app
 

@@ -23,6 +23,7 @@ const NAV: { href: string; label: string; roles: UserRole[] }[] = [
   { href: '/finance', label: 'Finance Approval', roles: ['finance', 'md', 'admin'] },
   { href: '/planner', label: 'Production Planner', roles: ['planner', 'md', 'admin'] },
   { href: '/qc', label: 'QC', roles: ['qc', 'md', 'admin'] },
+  { href: '/users', label: 'Users', roles: ['md', 'admin'] },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -38,6 +39,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const role = profile?.role ?? 'creator';
   const initials = (profile?.full_name ?? profile?.email ?? '??').slice(0, 2).toUpperCase();
+
+  // The login itself still works (Supabase Auth doesn't know about app.users), but every RLS policy
+  // and RBAC check treats a deactivated user as having no role (db/migrations/002_rls.sql), so there
+  // is nothing useful for them to do here — say so plainly instead of showing a UI that fails silently.
+  if (profile && !profile.is_active) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-kraft-50 px-6">
+        <div className="max-w-sm rounded-lg border border-rose-200 bg-white p-6 text-center">
+          <div className="mb-2 text-sm font-bold text-rose-800">Your account has been deactivated</div>
+          <p className="mb-4 text-xs text-ink-500">Contact an MD or Admin if this is unexpected.</p>
+          <button onClick={() => supabase.auth.signOut()} className="btn-secondary">Sign out</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col">

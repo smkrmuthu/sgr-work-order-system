@@ -32,6 +32,9 @@ the list, then save. Without this step every request from the web app will
 
 ## 3. Create logins for the 6 roles
 
+**One-time only** (once step 3b below is deployed, do this from the app's
+**Users** page instead — see there).
+
 The prototype already has `md@sgr.com`, `prod@sgr.com`, `qa@sgr.com` as
 Supabase Auth users — but this app's `app.users` table is separate from the
 prototype's user table, and a new-user trigger only fires for **brand-new**
@@ -46,10 +49,43 @@ on conflict (id) do update set role = excluded.role;
 ```
 
 Repeat per person with the right `role` (`creator`, `planner`, `qc`,
-`finance`, `md`, `admin`). For anyone brand new — including a new **Finance**
-login, e.g. `finance@sgr.com` — just have them sign up in the app and then
-run one `update app.users set role = 'finance' where email = '...'` to
-assign their role (new sign-ups default to `creator`).
+`finance`, `md`, `admin`). Give at least one person `md` or `admin` — they
+run step 3b below and everyone else from then on. For anyone brand new —
+including a new **Finance** login, e.g. `finance@sgr.com` — just have them
+sign up in the app and then run one
+`update app.users set role = 'finance' where email = '...'` to assign their
+role (new sign-ups default to `creator`).
+
+## 3b. Deploy the Users function
+
+The **Users** page (MD/Admin only — add logins, change roles, deactivate or
+delete someone) needs one Edge Function, because creating a login requires
+Supabase's admin key, which must never be placed in a website.
+
+1. Dashboard → **Edge Functions** → **Deploy a new function** → **Via
+   Editor**.
+2. Name it exactly `manage-app-users` (not `manage-users` — that name is
+   already used by the prototype's own function on this same project;
+   using a different name keeps the two completely separate).
+3. Replace the sample code with the full contents of
+   [`supabase/functions/manage-app-users/index.ts`](../supabase/functions/manage-app-users/index.ts),
+   then click **Deploy function** (takes 10–30 seconds). You don't enter
+   any keys — Supabase supplies the admin key to the function itself.
+
+**Updating it later:** Edge Functions → `manage-app-users` → open the code,
+paste the new version, Deploy.
+
+**Note on "Verify JWT":** Supabase's built-in login check only understands
+its older signing keys and rejects logins on newer projects
+(`UNAUTHORIZED_LEGACY_JWT` / "Invalid JWT") before the function's own code
+even runs. The app works around this by sending the public key in the
+normal header and the person's login separately (`x-user-token`), verified
+inside the function itself — you don't need to change any Verify JWT
+setting.
+
+Once deployed, sign in as an MD or Admin: a **Users** tab appears next to
+Work Orders. Rules built in: nobody can delete their own login, and there
+must always be at least one active MD and one active Admin.
 
 ## 4. Point the web app at the project
 
@@ -74,9 +110,9 @@ npm run dev
 Open http://localhost:3000, sign in, and you should land on **Work
 Orders**. What you see in the nav depends on your role (Work Orders: all
 roles · Finance Approval: finance/md/admin · Production Planner:
-planner/md/admin · QC: qc/md/admin) — that's a convenience, not the
-security boundary; RLS enforces the same rules server-side even if someone
-hits a hidden URL directly.
+planner/md/admin · QC: qc/md/admin · Users: md/admin) — that's a
+convenience, not the security boundary; RLS enforces the same rules
+server-side even if someone hits a hidden URL directly.
 
 A newly-created Work Order now sits in **Pending Finance Approval** —
 production can't start until Finance approves it (or it's rejected back to

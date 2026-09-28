@@ -4,14 +4,17 @@
 -- the Expected Completion Date") are enforced by triggers in 003_functions.sql, not by the client.
 
 -- ---------------------------------------------------------------- helpers
+-- is_active = false is treated as "no role" everywhere: a deactivated login (Users page, added
+-- 28 Sep 2026) keeps signing in successfully (Supabase Auth doesn't know about app.users), but every
+-- RLS policy and RBAC check below is built on these two functions, so it reads/writes nothing.
 create or replace function app.current_role() returns app.user_role
 language sql stable security definer set search_path = app, pg_temp as $$
-  select role from app.users where id = auth.uid()
+  select role from app.users where id = auth.uid() and is_active
 $$;
 
 create or replace function app.current_role_in(variadic roles app.user_role[]) returns boolean
 language sql stable security definer set search_path = app, pg_temp as $$
-  select coalesce((select role = any(roles) from app.users where id = auth.uid()), false)
+  select coalesce((select role = any(roles) from app.users where id = auth.uid() and is_active), false)
 $$;
 
 -- ---------------------------------------------------------------- users
@@ -20,13 +23,25 @@ alter table app.users enable row level security;
 drop policy if exists users_select on app.users;
 create policy users_select on app.users for select to authenticated using (true);   -- names shown across the app
 
+-- UPDATED 28 Sep 2026: MD may manage users too, not just Admin (matches the prototype's MD-manages-
+-- users behaviour) — the actual safety rails (can't remove the last MD/Admin, can't self-delete) live
+-- in the manage-app-users Edge Function, which is also the only way to CREATE a login (needs the
+-- service_role key). This policy only covers editing an existing app.users row (role, is_active, name).
 drop policy if exists users_update_admin on app.users;
-create policy users_update_admin on app.users for update to authenticated
-  using (app.current_role_in('admin')) with check (app.current_role_in('admin'));
+drop policy if exists users_update_md_admin on app.users;
+create policy users_update_md_admin on app.users for update to authenticated
+  using (app.current_role_in('md', 'admin')) with check (app.current_role_in('md', 'admin'));
 
+-- A user may rename themself, nothing else: role and is_active must come out unchanged, so nobody
+-- can promote or reactivate themself through this policy (that's users_update_md_admin's job, above).
 drop policy if exists users_update_own_name on app.users;
 create policy users_update_own_name on app.users for update to authenticated
-  using (id = auth.uid()) with check (id = auth.uid() and role = (select role from app.users where id = auth.uid()));
+  using (id = auth.uid())
+  with check (
+    id = auth.uid()
+    and role = (select role from app.users where id = auth.uid())
+    and is_active = (select is_active from app.users where id = auth.uid())
+  );
 
 -- Every new login gets a profile row automatically (role defaults to 'creator'; admin promotes it).
 create or replace function app.handle_new_user() returns trigger
