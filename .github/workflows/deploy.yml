@@ -1,0 +1,49 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAGES: 'true'
+      # Both values are safe to ship in the browser bundle — every table/RPC they can reach is
+      # protected by Row-Level Security (db/migrations/002_rls.sql), not by keeping these secret.
+      NEXT_PUBLIC_SUPABASE_URL: https://zuvmolgdmhbgqonzpjcg.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_ClscppU0a-LutkRhS13oWw_6IWqkGjk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run db:test
+      - run: npm run build
+      - run: touch apps/web/out/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

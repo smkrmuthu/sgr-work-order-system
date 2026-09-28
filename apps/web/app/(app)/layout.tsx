@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
@@ -71,7 +72,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             {NAV.filter((n) => n.roles.includes(role)).map((n) => {
               const active = pathname.startsWith(n.href);
               return (
-                <a
+                <Link
                   key={n.href}
                   href={n.href}
                   className={`border-b-2 px-3 py-2.5 text-xs font-bold tracking-wide ${
@@ -79,7 +80,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   }`}
                 >
                   {n.label.toUpperCase()}
-                </a>
+                </Link>
               );
             })}
           </div>

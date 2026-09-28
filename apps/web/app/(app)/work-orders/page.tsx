@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { STATUS_LABEL, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
@@ -48,9 +49,9 @@ export default function WorkOrdersPage() {
           <p className="text-sm text-ink-500">Every Work Order that has been created — a Draft only appears here after it is created (v1.3 §3.4).</p>
         </div>
         {(profile?.role === 'creator' || profile?.role === 'md' || profile?.role === 'admin') && (
-          <a href="/work-orders/new" className="rounded-md bg-forest-700 px-4 py-2 text-sm font-bold text-white hover:bg-forest-800">
+          <Link href="/work-orders/new" className="rounded-md bg-forest-700 px-4 py-2 text-sm font-bold text-white hover:bg-forest-800">
             + New Work Order
-          </a>
+          </Link>
         )}
       </div>
 
@@ -86,9 +87,9 @@ export default function WorkOrdersPage() {
             {filtered.map((r) => (
               <tr key={r.id} className="border-t border-kraft-100 hover:bg-kraft-50">
                 <td className="px-3 py-2">
-                  <a href={`/work-orders/detail?id=${r.id}`} className="font-mono font-bold text-forest-800 hover:underline">
+                  <Link href={`/work-orders/detail?id=${r.id}`} className="font-mono font-bold text-forest-800 hover:underline">
                     {r.wo_number}
-                  </a>
+                  </Link>
                 </td>
                 <td className="px-3 py-2">{r.partner ? `${r.partner.code} — ${r.partner.name}` : '—'}</td>
                 <td className="px-3 py-2">{r.delivery_date ?? '—'}</td>

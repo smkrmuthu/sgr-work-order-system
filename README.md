@@ -96,6 +96,14 @@ prototype already uses this pattern for its `manage-users` function.
   `SECURITY DEFINER` RPCs); clients can read them but never write or
   delete them.
 
+## Live app
+
+**https://smkrmuthu.github.io/sgr-work-order-system/** — deployed
+automatically by [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
+on every push to `main` (build → `db:test` → static export → GitHub
+Pages). It won't do anything useful until the database steps below have
+been run at least once against the live Supabase project.
+
 ## Getting started
 
 See [docs/SETUP.md](docs/SETUP.md) for applying the database migrations
