@@ -148,7 +148,7 @@ export default function PlannerPage() {
           <section className="rounded-lg border border-kraft-200 bg-white">
             <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">RECORD TODAY&rsquo;S PRODUCTION</div>
             <div className="p-5">
-              <div className="mb-4 grid grid-cols-3 gap-3">
+              <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <Field label="Production Date"><input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="input" /></Field>
                 <Field label="Shift">
                   <select value={shiftId} onChange={(e) => setShiftId(e.target.value)} className="input">
@@ -160,16 +160,31 @@ export default function PlannerPage() {
               {lines.map((l) => {
                 const remaining = l.qty - l.produced;
                 const v = entryValues[l.id] ?? { qty: '', weight: '', note: '' };
+                const stdWeight = Number(l.standard_weight_kg_snapshot || 0);
+                const calcWeight =
+                  v.qty && !isNaN(Number(v.qty))
+                    ? (Number(v.qty) * stdWeight).toFixed(2)
+                    : '';
                 return (
                   <div key={l.id} className="flex flex-wrap items-end gap-3 border-b border-kraft-100 py-3 last:border-none">
                     <div className="min-w-[200px] flex-1 text-xs">
                       <div className="font-bold">{l.part_no_snapshot} — {l.description_snapshot}</div>
-                      <div className="text-ink-500">{remaining} remaining of {l.qty}</div>
+                      <div className="text-ink-500">{remaining} remaining of {l.qty} {stdWeight > 0 ? `· Std wt: ${stdWeight} kg/unit` : ''}</div>
                     </div>
                     {remaining > 0 ? (
                       <>
                         <Field label="Qty Produced"><input type="number" value={v.qty} onChange={(e) => setEntryValues((s) => ({ ...s, [l.id]: { ...v, qty: e.target.value } }))} className="input w-28" /></Field>
                         <Field label="Actual Weight (kg)"><input type="number" step="0.1" value={v.weight} onChange={(e) => setEntryValues((s) => ({ ...s, [l.id]: { ...v, weight: e.target.value } }))} className="input w-32" /></Field>
+                        <Field label="Calculated Weight (kg)">
+                          <input
+                            type="text"
+                            readOnly
+                            disabled
+                            value={calcWeight ? `${calcWeight}` : ''}
+                            placeholder="0.00"
+                            className="input w-36 font-mono disabled:bg-kraft-100 disabled:text-ink-700 disabled:cursor-not-allowed"
+                          />
+                        </Field>
                         <Field label="Note"><input value={v.note} onChange={(e) => setEntryValues((s) => ({ ...s, [l.id]: { ...v, note: e.target.value } }))} className="input" /></Field>
                       </>
                     ) : <span className="text-xs font-bold text-emerald-600">✓ Fully produced</span>}

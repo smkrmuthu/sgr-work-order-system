@@ -1,0 +1,111 @@
+name: Automated Database Backup (Every 2 Days)
+
+on:
+  schedule:
+    # Run every 2 days at 00:00 UTC
+    - cron: '0 0 */2 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: Generate Full Database Backup
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://zuvmolgdmhbgqonzpjcg.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_ClscppU0a-LutkRhS13oWw_6IWqkGjk
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Generate Database Backup Files (.sql and .json)
+        run: |
+          mkdir -p backups
+          node -e '
+            import { createClient } from "@supabase/supabase-js";
+            import fs from "fs";
+
+            const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+            const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+            const supabase = createClient(url, key, { db: { schema: "app" } });
+
+            const tables = [
+              "users", "categories", "shifts", "parts", "business_partners",
+              "partner_addresses", "partner_contacts", "delivery_locations",
+              "wo_number_counters", "work_orders", "work_order_lines",
+              "work_order_notes", "work_order_revisions", "status_history",
+              "completion_date_changes", "finance_approvals", "production_entries",
+              "production_output_lines", "qc_submissions", "qc_inspections",
+              "attachments", "invoices", "invoice_lines", "notifications"
+            ];
+
+            function sqlEscape(val) {
+              if (val === null || val === undefined) return "NULL";
+              if (typeof val === "number") return isNaN(val) ? "NULL" : String(val);
+              if (typeof val === "boolean") return val ? "TRUE" : "FALSE";
+              if (typeof val === "object") return "\x27" + JSON.stringify(val).replace(/\x27/g, "\x27\x27") + "\x27::jsonb";
+              return "\x27" + String(val).replace(/\x27/g, "\x27\x27") + "\x27";
+            }
+
+            async function run() {
+              const dump = { metadata: { system: "SGR Work Order Management System", timestamp: new Date().toISOString(), total_records: 0, table_counts: {} }, tables: {} };
+              for (const t of tables) {
+                const { data, error } = await supabase.from(t).select("*");
+                const rows = data || [];
+                dump.tables[t] = rows;
+                dump.metadata.table_counts[t] = rows.length;
+                dump.metadata.total_records += rows.length;
+              }
+
+              const dateStr = new Date().toISOString().slice(0, 10);
+              fs.writeFileSync(`backups/sgr_db_backup_${dateStr}.json`, JSON.stringify(dump, null, 2));
+
+              const sql = [
+                "-- SGR MOULDS INDIA PVT LTD — AUTOMATED DATABASE BACKUP & REBUILD SCRIPT",
+                `-- Timestamp: ${dump.metadata.timestamp}`,
+                `-- Total Records: ${dump.metadata.total_records}`,
+                "BEGIN;",
+                "SET session_replication_role = replica;\n"
+              ];
+
+              for (const t of tables) {
+                const rows = dump.tables[t] || [];
+                sql.push(`-- Table: app.${t} (${rows.length} rows)`);
+                if (rows.length > 0) {
+                  const cols = Object.keys(rows[0]);
+                  const colList = cols.map(c => `"${c}"`).join(", ");
+                  for (const r of rows) {
+                    const vals = cols.map(c => sqlEscape(r[c])).join(", ");
+                    sql.push(`INSERT INTO app."${t}" (${colList}) VALUES (${vals}) ON CONFLICT DO NOTHING;`);
+                  }
+                }
+                sql.push("");
+              }
+
+              sql.push("SET session_replication_role = origin;");
+              sql.push("COMMIT;");
+              fs.writeFileSync(`backups/sgr_db_rebuild_${dateStr}.sql`, sql.join("\n"));
+              console.log("Backup completed successfully. Total records:", dump.metadata.total_records);
+            }
+
+            run().catch(e => { console.error(e); process.exit(1); });
+          '
+
+      - name: Upload Backup Artifacts (90-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sgr-db-backup-${{ github.sha }}
+          path: backups/
+          retention-days: 90

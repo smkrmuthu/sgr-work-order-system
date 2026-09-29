@@ -5,13 +5,19 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 
 export default function RootPage() {
-  const { loading, session } = useAuth();
+  const { loading, session, profile } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (loading) return;
-    router.replace(session ? '/work-orders' : '/login');
-  }, [loading, session, router]);
+    if (!session) {
+      router.replace('/login');
+    } else if (profile?.role === 'md' || profile?.role === 'admin') {
+      router.replace('/dashboard');
+    } else {
+      router.replace('/work-orders');
+    }
+  }, [loading, session, profile, router]);
 
   return null;
 }
