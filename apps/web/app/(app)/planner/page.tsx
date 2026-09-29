@@ -160,6 +160,10 @@ export default function PlannerPage() {
               {lines.map((l) => {
                 const remaining = l.qty - l.produced;
                 const v = entryValues[l.id] ?? { qty: '', weight: '', note: '' };
+                const calcWeight =
+                  v.qty && v.weight && !isNaN(Number(v.qty)) && !isNaN(Number(v.weight))
+                    ? (Number(v.qty) * Number(v.weight)).toFixed(2)
+                    : '';
                 return (
                   <div key={l.id} className="flex flex-wrap items-end gap-3 border-b border-kraft-100 py-3 last:border-none">
                     <div className="min-w-[200px] flex-1 text-xs">
@@ -170,6 +174,16 @@ export default function PlannerPage() {
                       <>
                         <Field label="Qty Produced"><input type="number" value={v.qty} onChange={(e) => setEntryValues((s) => ({ ...s, [l.id]: { ...v, qty: e.target.value } }))} className="input w-28" /></Field>
                         <Field label="Actual Weight (kg)"><input type="number" step="0.1" value={v.weight} onChange={(e) => setEntryValues((s) => ({ ...s, [l.id]: { ...v, weight: e.target.value } }))} className="input w-32" /></Field>
+                        <Field label="Calculated Weight (kg)">
+                          <input
+                            type="text"
+                            readOnly
+                            disabled
+                            value={calcWeight ? `${calcWeight}` : ''}
+                            placeholder="0.00"
+                            className="input w-36 font-mono disabled:bg-kraft-100 disabled:text-ink-700 disabled:cursor-not-allowed"
+                          />
+                        </Field>
                         <Field label="Note"><input value={v.note} onChange={(e) => setEntryValues((s) => ({ ...s, [l.id]: { ...v, note: e.target.value } }))} className="input" /></Field>
                       </>
                     ) : <span className="text-xs font-bold text-emerald-600">✓ Fully produced</span>}
