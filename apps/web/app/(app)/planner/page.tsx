@@ -160,15 +160,16 @@ export default function PlannerPage() {
               {lines.map((l) => {
                 const remaining = l.qty - l.produced;
                 const v = entryValues[l.id] ?? { qty: '', weight: '', note: '' };
+                const stdWeight = Number(l.standard_weight_kg_snapshot || 0);
                 const calcWeight =
-                  v.qty && v.weight && !isNaN(Number(v.qty)) && !isNaN(Number(v.weight))
-                    ? (Number(v.qty) * Number(v.weight)).toFixed(2)
+                  v.qty && !isNaN(Number(v.qty))
+                    ? (Number(v.qty) * stdWeight).toFixed(2)
                     : '';
                 return (
                   <div key={l.id} className="flex flex-wrap items-end gap-3 border-b border-kraft-100 py-3 last:border-none">
                     <div className="min-w-[200px] flex-1 text-xs">
                       <div className="font-bold">{l.part_no_snapshot} — {l.description_snapshot}</div>
-                      <div className="text-ink-500">{remaining} remaining of {l.qty}</div>
+                      <div className="text-ink-500">{remaining} remaining of {l.qty} {stdWeight > 0 ? `· Std wt: ${stdWeight} kg/unit` : ''}</div>
                     </div>
                     {remaining > 0 ? (
                       <>
