@@ -21,6 +21,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
 // Which roles see each nav tab. Hiding it is a convenience only — every table and RPC behind these
 // screens is independently enforced by RLS (db/migrations/002_rls.sql), never by this list alone.
 const NAV: { href: string; label: string; roles: UserRole[] }[] = [
+  { href: '/dashboard', label: 'Dashboard', roles: ['md', 'admin'] },
   { href: '/work-orders', label: 'Work Orders', roles: ['creator', 'md', 'planner', 'qc', 'finance', 'admin'] },
   { href: '/finance', label: 'Finance Approval', roles: ['finance', 'md', 'admin'] },
   { href: '/planner', label: 'Production Planner', roles: ['planner', 'md', 'admin'] },
