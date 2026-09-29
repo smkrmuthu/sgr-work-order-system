@@ -60,11 +60,16 @@ export default function ItemMasterPage() {
 
   async function savePart() {
     if (!form.part_no.trim() || !form.description.trim()) { setError('Part number and description are required.'); return; }
+    // A typo here silently became 0 before (Number('199..99') is NaN, and `NaN || 0` is 0) — every future
+    // Work Order line snapshots this price, so a bad entry is refused instead of quietly zeroing it.
+    const weight = Number(form.standard_weight_kg), price = Number(form.price);
+    if (!Number.isFinite(weight) || weight < 0) { setError('Standard Weight must be a number, 0 or more.'); return; }
+    if (!Number.isFinite(price) || price < 0) { setError('Standard Price must be a number, 0 or more.'); return; }
     setSaving(true); setError('');
     const row = {
       part_no: form.part_no.trim(), description: form.description.trim(), uom: form.uom.trim() || 'NOS',
-      standard_weight_kg: Number(form.standard_weight_kg) || 0, category_id: form.category_id || null,
-      price: Number(form.price) || 0, customer_ref: form.customer_ref.trim() || null, remarks: form.remarks.trim() || null,
+      standard_weight_kg: weight, category_id: form.category_id || null,
+      price, customer_ref: form.customer_ref.trim() || null, remarks: form.remarks.trim() || null,
     };
     const { error } = editingId === 'new'
       ? await supabase.from('parts').insert(row)

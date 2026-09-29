@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -592,5 +592,67 @@ ok(!!plannerAttach, 'a Planner cannot attach files to a QC inspection (' + plann
 const delAtt = await as(MD, () => db.query(`delete from app.attachments where qc_inspection_id=$1`, [att.insp]));
 const updAtt = await as(MD, () => db.query(`update app.attachments set file_name='renamed' where qc_inspection_id=$1`, [att.insp]));
 ok(delAtt.affectedRows === 0 && updAtt.affectedRows === 0, 'an inspection file cannot be deleted or renamed, even by the MD');
+
+// ---------------------------------------------------------------- 012 review fixes
+// #1 lock: a single (non-concurrent) call still behaves exactly as before — PGlite is one connection,
+// so the interleaved-transaction race itself can't be reproduced here; this is a regression check that
+// adding `for update` didn't change the normal, single-caller behaviour of any of the three functions.
+const lockCheckDraft = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-05-01', lines: [{ part_id: p1.id, qty: 40 }] })]))).rows[0].id;
+await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [lockCheckDraft]));
+await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [lockCheckDraft]));
+const lockCheckLine = (await as(CREATOR, () => db.query(`select id from app.work_order_lines where work_order_id=$1`, [lockCheckDraft]))).rows[0].id;
+await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
+  work_order_id: lockCheckDraft, shift_id: shiftMorningId, labour_count: 2, lines: [{ work_order_line_id: lockCheckLine, qty: 40 }] })]));
+const sentAfterLock = (await as(PLANNER, () => db.query(`select app.send_line_to_qc($1) as q`, [lockCheckLine]))).rows[0].q;
+await as(QC, () => db.query(`select app.record_qc_inspection($1, 40, 'ok')`, [lockCheckLine]));
+ok(Number(sentAfterLock) === 40, 'record_production + send_line_to_qc + record_qc_inspection still work normally with the new locks: sent ' + sentAfterLock);
+
+// #8 create_work_order now rejects a zero/negative-quantity line.
+const badQtyDraft = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-05-01', lines: [{ part_id: p1.id, qty: 0 }] })]))).rows[0].id;
+let badQtyErr = null;
+try { await as(CREATOR, () => db.query(`select app.create_work_order($1)`, [badQtyDraft])); } catch (e) { badQtyErr = e.message; }
+ok(/quantity greater than zero/.test(badQtyErr || ''), 'create_work_order rejects a zero-quantity line: ' + badQtyErr);
+
+// #9 generate_invoice now bounds the GST rate.
+let badGstErr = null;
+try { await as(MD, () => db.query(`select app.generate_invoice($1, -18, 'intra')`, [lockCheckDraft])); } catch (e) { badGstErr = e.message; }
+ok(/GST rate must be between/.test(badGstErr || ''), 'generate_invoice rejects a negative GST rate: ' + badGstErr);
+let badGstErr2 = null;
+try { await as(MD, () => db.query(`select app.generate_invoice($1, 9999, 'intra')`, [lockCheckDraft])); } catch (e) { badGstErr2 = e.message; }
+ok(/GST rate must be between/.test(badGstErr2 || ''), 'generate_invoice rejects a GST rate above 100: ' + badGstErr2);
+
+// #7 save_draft's header write now also works for MD/Admin on someone else's draft (lines/notes already did).
+const otherHeaderDraft = (await as(OTHER_CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-05-01', doc_ref: 'BEFORE', lines: [{ part_id: p1.id, qty: 1 }] })]))).rows[0].id;
+await as(MD, () => db.query(`select app.save_draft($1, $2)`, [otherHeaderDraft, JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-05-01', doc_ref: 'MD-FIXED', lines: [{ part_id: p1.id, qty: 1 }] })]));
+const otherHeaderAfter = (await as(CREATOR, () => db.query(`select doc_ref from app.work_orders where id=$1`, [otherHeaderDraft]))).rows[0].doc_ref;
+ok(otherHeaderAfter === 'MD-FIXED', "MD's save_draft now updates another Creator's draft header too: " + otherHeaderAfter);
+let plannerHeaderEdit = null;
+try { await as(PLANNER, () => db.query(`select app.save_draft($1, $2)`, [otherHeaderDraft, JSON.stringify({ doc_ref: 'SNEAKY', lines: [{ part_id: p1.id, qty: 1 }] })])); }
+catch (e) { plannerHeaderEdit = e.message; }
+const stillMdFixed = (await as(CREATOR, () => db.query(`select doc_ref from app.work_orders where id=$1`, [otherHeaderDraft]))).rows[0].doc_ref;
+ok(stillMdFixed === 'MD-FIXED', "a Planner still cannot edit someone else's draft header" + (plannerHeaderEdit ? ' (' + plannerHeaderEdit + ')' : ' (0 rows via RLS)'));
+
+// #2 cancel_work_order: was completely unreachable before 012 (no function ever set status='cancelled').
+const cancelDraft = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-05-01', lines: [{ part_id: p1.id, qty: 3 }] })]))).rows[0].id;
+await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [cancelDraft]));
+await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [cancelDraft]));
+let plannerCancel = null;
+try { await as(PLANNER, () => db.query(`select app.cancel_work_order($1, 'x')`, [cancelDraft])); } catch (e) { plannerCancel = e.message; }
+ok(/Only MD/.test(plannerCancel || ''), 'only MD/Admin may cancel a Work Order: ' + plannerCancel);
+const cancelled = (await as(MD, () => db.query(`select * from app.cancel_work_order($1, 'wrong vendor')`, [cancelDraft]))).rows[0];
+ok(cancelled.status === 'cancelled', 'MD can now cancel a Work Order (was unreachable before 012): ' + cancelled.status);
+const cancelLog = (await as(CREATOR, () => db.query(`select action, comments from app.finance_approvals where work_order_id=$1 order by created_at desc limit 1`, [cancelDraft]))).rows[0];
+ok(/Cancelled: wrong vendor/.test(cancelLog.comments), 'the cancellation reason is recorded: ' + cancelLog.comments);
+let doubleCancel = null;
+try { await as(MD, () => db.query(`select app.cancel_work_order($1)`, [cancelDraft])); } catch (e) { doubleCancel = e.message; }
+ok(/cannot be cancelled/.test(doubleCancel || ''), 'an already-cancelled Work Order cannot be cancelled again: ' + doubleCancel);
+let directCancelStillBlocked = null;
+try { await as(MD, () => db.query(`update app.work_orders set status='created' where id=$1`, [cancelDraft])); } catch (e) { directCancelStillBlocked = e.message; }
+ok(/only through the app/.test(directCancelStillBlocked || ''), "007's direct-status-edit block is still in force (cancel_work_order is the only door): " + directCancelStillBlocked);
 
 console.log('\nDone.');

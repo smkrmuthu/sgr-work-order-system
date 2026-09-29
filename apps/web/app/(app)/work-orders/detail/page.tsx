@@ -138,12 +138,18 @@ function WorkOrderDetail() {
     setSaving(true); setError('');
     // Only the lines that actually changed. One call does header + lines together, so a save is exactly one
     // revision (and none if nothing changed) — see app.update_work_order in db/migrations/011.
-    const changedLines = lines.flatMap((l) => {
+    const changedLines: { id: string; qty: number; final_price: number }[] = [];
+    for (const l of lines) {
       const e = lineEdits[l.id];
-      if (!e) return [];
+      if (!e) continue;
       const qty = Number(e.qty), final_price = Number(e.final_price);
-      return qty !== l.qty || final_price !== l.final_price ? [{ id: l.id, qty, final_price }] : [];
-    });
+      // A non-numeric qty/price used to turn into JSON null, which the server read as "no change" and
+      // silently kept the old value — while the save still reported success. Refuse it here instead.
+      if (!Number.isFinite(qty) || !Number.isFinite(final_price)) {
+        setSaving(false); setError(`${l.part_no_snapshot}: enter a valid quantity and price.`); return;
+      }
+      if (qty !== l.qty || final_price !== l.final_price) changedLines.push({ id: l.id, qty, final_price });
+    }
     const { error: e1 } = await supabase.rpc('update_work_order', {
       p_work_order_id: wo.id,
       p: { delivery_date: deliveryDate || null, doc_ref: docRef || null, lines: changedLines },

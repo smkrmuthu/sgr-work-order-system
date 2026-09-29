@@ -123,7 +123,10 @@ function WorkOrderForm() {
       }));
       if (wo.status === 'draft' && rej && rej[0]?.comments) setRejection(rej[0].comments);
     })();
-  }, [editId, refReady, profile]);
+    // profile?.id, not profile: AuthProvider hands back a brand-new profile object on every auth event,
+    // including a background token refresh — depending on the object itself re-ran this fetch mid-edit
+    // and silently overwrote whatever the user had typed with the still-unsaved database values.
+  }, [editId, refReady, profile?.id]);
 
   const partnerLocations = useMemo(
     () => locations.filter((l) => l.partner_id === partnerId && (l.is_active || l.id === locationId)),

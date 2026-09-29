@@ -35,12 +35,16 @@ export default function FinishedGoodsPage() {
     const ids = (orders ?? []).map((o) => o.id);
     if (!ids.length) { setGroups([]); return; }
 
-    const { data: lines } = await supabase.from('work_order_lines').select('*').in('work_order_id', ids).order('line_no');
+    const { data: lines, error: e2 } = await supabase.from('work_order_lines').select('*').in('work_order_id', ids).order('line_no');
+    if (e2) { setError(e2.message); return; }
     const lineIds = (lines ?? []).map((l) => l.id);
-    const [{ data: insp }, { data: billed }] = await Promise.all([
-      supabase.from('qc_inspections').select('work_order_line_id, accepted_qty').in('work_order_line_id', lineIds),
-      supabase.from('invoice_lines').select('work_order_line_id, qty').in('work_order_line_id', lineIds),
+    // Same guard the qc/planner/detail pages use: an empty lineIds list is a plain no-op here, not
+    // something to hand to .in(), and any real query error is now surfaced instead of read as "no rows".
+    const [{ data: insp, error: e3 }, { data: billed, error: e4 }] = await Promise.all([
+      lineIds.length ? supabase.from('qc_inspections').select('work_order_line_id, accepted_qty').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as { work_order_line_id: string; accepted_qty: number }[], error: null }),
+      lineIds.length ? supabase.from('invoice_lines').select('work_order_line_id, qty').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as { work_order_line_id: string | null; qty: number }[], error: null }),
     ]);
+    if (e3 || e4) { setError((e3 ?? e4)!.message); return; }
     const sum = (rows: { work_order_line_id: string | null; [k: string]: unknown }[] | null, key: string, id: string) =>
       (rows ?? []).filter((r) => r.work_order_line_id === id).reduce((n, r) => n + Number(r[key]), 0);
 

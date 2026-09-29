@@ -62,7 +62,9 @@ export default function WorkOrdersPage() {
           <h1 className="text-xl font-bold text-forest-900">Work Orders</h1>
           <p className="text-sm text-ink-500">Every Work Order that has been created. Your own drafts (including any Finance sent back) show here too, only to you.</p>
         </div>
-        {(profile?.role === 'creator' || profile?.role === 'md' || profile?.role === 'admin') && (
+        {/* Matches work_orders_insert's actual RLS policy (creator, md) — admin isn't listed there, so
+            showing this to admin used to fail on the first Save Draft with a raw RLS error. */}
+        {(profile?.role === 'creator' || profile?.role === 'md') && (
           <Link href="/work-orders/new" className="rounded-md bg-forest-700 px-4 py-2 text-sm font-bold text-white hover:bg-forest-800">
             + New Work Order
           </Link>

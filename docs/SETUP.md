@@ -9,7 +9,7 @@ Project: `https://zuvmolgdmhbgqonzpjcg.supabase.co`
 
 ## 1. Run the migrations
 
-Open the Supabase dashboard → **SQL Editor** → New query, and run these eleven
+Open the Supabase dashboard → **SQL Editor** → New query, and run these twelve
 files **in order**, pasting each one's full contents and clicking Run:
 
 1. `db/migrations/001_schema.sql` — schema, enums, tables
@@ -44,8 +44,15 @@ files **in order**, pasting each one's full contents and clicking Run:
     Finance (the database previously refused it), and every MD edit of a released
     order is exactly one revision (a quantity-only change used to open none). Adds
     `update_work_order` — switch it on under Exposed functions too
+12. `db/migrations/012_review_fixes.sql` — fixes from the first code review:
+    row-level locking so two people can no longer double-record the same QC
+    acceptance/production/QC-submission at once; a way to actually cancel a
+    Work Order (`cancelled` had become unreachable by anyone, even MD);
+    quantities must be above zero to create a Work Order; the GST rate is
+    now bounds-checked; and MD/Admin's `save_draft` header write now applies
+    to any Creator's draft, not just their own
 
-All eleven are safe to re-run (`create table if not exists`, `drop policy if
+All twelve are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
 
 ## 2. Expose the `app` schema to the API
