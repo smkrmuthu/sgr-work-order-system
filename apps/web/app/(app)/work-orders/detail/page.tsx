@@ -56,6 +56,10 @@ function WorkOrderDetail() {
   const [rejectReason, setRejectReason] = useState('');
   const [financeBusy, setFinanceBusy] = useState(false);
 
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+
   const [editing, setEditing] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState('');
   const [docRef, setDocRef] = useState('');
@@ -188,6 +192,16 @@ function WorkOrderDetail() {
     load();
   }
 
+  async function cancelWo() {
+    if (!wo) return;
+    setCancelBusy(true); setError('');
+    const { error } = await supabase.rpc('cancel_work_order', { p_work_order_id: wo.id, p_reason: cancelReason.trim() || null });
+    setCancelBusy(false);
+    if (error) { setError(error.message); return; }
+    setCancelling(false); setCancelReason('');
+    load();
+  }
+
   if (error) return <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>;
   if (!wo) return <p className="text-sm text-ink-500">Loading…</p>;
 
@@ -293,6 +307,41 @@ function WorkOrderDetail() {
                   <button onClick={() => setEditing(false)} className="btn-secondary">Cancel</button>
                   <button onClick={saveEdit} disabled={saving} className="btn-primary">{saving ? 'Saving…' : `Save Changes — creates R${wo.revision + 1}`}</button>
                 </>
+              )}
+            </div>
+          )}
+
+          {/* Restored by db/migrations/012_review_fixes.sql (app.cancel_work_order) — matches that
+              function's own guard: not once completed, and not twice. */}
+          {isMd && wo.status !== 'completed' && wo.status !== 'cancelled' && (
+            <div className="mt-3 flex justify-end">
+              {!cancelling ? (
+                <button onClick={() => setCancelling(true)} className="text-xs font-bold text-rose-700 hover:underline">
+                  Cancel Work Order
+                </button>
+              ) : (
+                <div className="w-full rounded-md border border-rose-200 bg-rose-50 p-3">
+                  <p className="mb-2 text-xs text-rose-800">
+                    This stops the order permanently — it can&apos;t be un-cancelled. Say why, for the record.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      placeholder="Reason for cancelling…"
+                      className="input flex-1"
+                    />
+                    <button
+                      onClick={() => { if (confirm(`Cancel Work Order ${wo.wo_number ?? ''}? This can't be undone.`)) cancelWo(); }}
+                      disabled={cancelBusy}
+                      className="whitespace-nowrap rounded-md bg-rose-700 px-4 py-2 text-xs font-bold text-white hover:bg-rose-800 disabled:opacity-50"
+                    >
+                      {cancelBusy ? 'Cancelling…' : 'Confirm Cancel'}
+                    </button>
+                    <button onClick={() => { setCancelling(false); setCancelReason(''); }} className="btn-secondary">Back</button>
+                  </div>
+                </div>
               )}
             </div>
           )}
