@@ -28,7 +28,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not 20 (unlike the app's other workflows): @supabase/supabase-js's realtime client sets
+          # up a WebSocket connection the moment createClient() runs, even though this script never uses
+          # realtime features — and Node needs a native `WebSocket` global for that, which only exists
+          # from Node 22 on. On 20 it throws immediately: "Node.js detected but native WebSocket not
+          # found." (confirmed on a real run — this is what actually broke it, not the auth fix itself).
+          node-version: 22
           cache: npm
 
       - name: Install Dependencies
