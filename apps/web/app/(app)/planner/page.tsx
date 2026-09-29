@@ -148,7 +148,7 @@ export default function PlannerPage() {
           <section className="rounded-lg border border-kraft-200 bg-white">
             <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">RECORD TODAY&rsquo;S PRODUCTION</div>
             <div className="p-5">
-              <div className="mb-4 grid grid-cols-3 gap-3">
+              <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <Field label="Production Date"><input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="input" /></Field>
                 <Field label="Shift">
                   <select value={shiftId} onChange={(e) => setShiftId(e.target.value)} className="input">
