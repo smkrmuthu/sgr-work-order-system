@@ -9,7 +9,7 @@ Project: `https://zuvmolgdmhbgqonzpjcg.supabase.co`
 
 ## 1. Run the migrations
 
-Open the Supabase dashboard → **SQL Editor** → New query, and run these twelve
+Open the Supabase dashboard → **SQL Editor** → New query, and run these thirteen
 files **in order**, pasting each one's full contents and clicking Run:
 
 1. `db/migrations/001_schema.sql` — schema, enums, tables
@@ -51,8 +51,16 @@ files **in order**, pasting each one's full contents and clicking Run:
     quantities must be above zero to create a Work Order; the GST rate is
     now bounds-checked; and MD/Admin's `save_draft` header write now applies
     to any Creator's draft, not just their own
+13. `db/migrations/013_backup_export_rpc.sql` — **security fix**: the Backup
+    page (Database Backup & Rebuild) had no real access control, only a
+    hidden nav link — since RLS deliberately keeps most tables broadly
+    readable for everyday multi-role use, any signed-in login could reach
+    it directly and download the full database. All 25 of its table reads
+    now go through `app.export_table`, which checks MD/Admin itself and
+    can't be bypassed the way a hidden link can. Switch this new function
+    on under Exposed functions too
 
-All twelve are safe to re-run (`create table if not exists`, `drop policy if
+All thirteen are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
 
 ## 2. Expose the `app` schema to the API

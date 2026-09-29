@@ -11,7 +11,7 @@ import {
 } from '@/lib/backup';
 
 export default function BackupPage() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [backupData, setBackupData] = useState<BackupData | null>(null);
@@ -69,6 +69,19 @@ export default function BackupPage() {
       setExporting(false);
     }
   };
+
+  // The real access control is app.export_table's own role check (db/migrations/013) — it can't be
+  // bypassed by calling the same request directly, the way this page-level gate could be. This just
+  // gives anyone who lands here anyway (a stale bookmark, a role change) a clear message instead of a
+  // page that quietly shows "0 records" and downloads empty files once every export_table call fails.
+  if (authLoading) return null;
+  if (profile && profile.role !== 'md' && profile.role !== 'admin') {
+    return (
+      <div className="rounded-lg border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-800">
+        This page is for MD and Admin only.
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6 pb-12">

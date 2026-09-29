@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -654,5 +654,33 @@ ok(/cannot be cancelled/.test(doubleCancel || ''), 'an already-cancelled Work Or
 let directCancelStillBlocked = null;
 try { await as(MD, () => db.query(`update app.work_orders set status='created' where id=$1`, [cancelDraft])); } catch (e) { directCancelStillBlocked = e.message; }
 ok(/only through the app/.test(directCancelStillBlocked || ''), "007's direct-status-edit block is still in force (cancel_work_order is the only door): " + directCancelStillBlocked);
+
+// ---------------------------------------------------------------- 013: Backup page's real access control
+// The bug: the Backup page had no role check anywhere, only a hidden nav link, while a plain
+// `.from('business_partners').select('*')` succeeds for ANY signed-in role (RLS deliberately keeps most
+// tables broadly readable). So the actual boundary has to be this RPC, not the page.
+let plannerExport = null;
+try { await as(PLANNER, () => db.query(`select app.export_table('business_partners')`)); } catch (e) { plannerExport = e.message; }
+ok(/Only MD or Admin may export/.test(plannerExport || ''), 'a Planner cannot call export_table at all, not even for a broadly-readable table: ' + plannerExport);
+let financeExport = null;
+try { await as(FINANCE, () => db.query(`select app.export_table('invoices')`)); } catch (e) { financeExport = e.message; }
+ok(/Only MD or Admin may export/.test(financeExport || ''), 'neither can Finance, QC or Creator (spot-checked with Finance): ' + financeExport);
+
+const exportedPartners = (await as(MD, () => db.query(`select app.export_table('business_partners') as rows`))).rows[0].rows;
+ok(Array.isArray(exportedPartners) && exportedPartners.length === 3 && exportedPartners[0].code,
+   'MD can export a real table and gets actual rows back: ' + exportedPartners.length + ' partner(s)');
+const adminExport = (await as(ADMIN, () => db.query(`select app.export_table('parts') as rows`))).rows[0].rows;
+ok(Array.isArray(adminExport) && adminExport.length > 0, 'Admin (not just MD) can export too: ' + adminExport.length + ' part(s)');
+
+// coalesce(..., '[]'::jsonb) inside export_table means a table with zero matching rows comes back as an
+// actual empty array over the wire, never a bare SQL null the frontend would otherwise have to special-case.
+// Nothing later in this suite reads app.notifications, so clearing it here is safe.
+await db.query(`delete from app.notifications`);
+const emptyExport = (await as(MD, () => db.query(`select app.export_table('notifications') as rows`))).rows[0].rows;
+ok(Array.isArray(emptyExport) && emptyExport.length === 0, 'a genuinely empty table comes back as [] via coalesce, not null: ' + JSON.stringify(emptyExport));
+
+let badTableName = null;
+try { await as(MD, () => db.query(`select app.export_table('auth.users')`)); } catch (e) { badTableName = e.message; }
+ok(/Unknown table/.test(badTableName || ''), "export_table refuses anything outside its allow-list (tried 'auth.users'): " + badTableName);
 
 console.log('\nDone.');

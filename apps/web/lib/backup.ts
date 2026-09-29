@@ -57,14 +57,20 @@ export async function fetchFullDatabaseDump(userEmail: string): Promise<BackupDa
   const tableCounts: Record<string, number> = {};
   let totalRecords = 0;
 
+  // Routed through app.export_table (db/migrations/013_backup_export_rpc.sql), a SECURITY DEFINER
+  // function that re-checks md/admin itself, rather than a plain `.from(table).select('*')`. RLS
+  // deliberately leaves most of these tables readable by every signed-in role for their own screens, so
+  // a raw select here would let anyone who reached this page — or just replayed the same network
+  // request — pull the whole database. The RPC is the actual access-control boundary; the page's own
+  // role check below is only what decides whether to offer the button.
   for (const table of BACKUP_TABLES) {
-    const { data, error } = await supabase.from(table).select('*');
+    const { data, error } = await supabase.rpc('export_table', { p_table: table });
     if (error) {
       console.warn(`Warning: Could not export table app.${table}: ${error.message}`);
       tablesData[table] = [];
       tableCounts[table] = 0;
     } else {
-      const rows = data ?? [];
+      const rows = (data as Record<string, unknown>[] | null) ?? [];
       tablesData[table] = rows;
       tableCounts[table] = rows.length;
       totalRecords += rows.length;
