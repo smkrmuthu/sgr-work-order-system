@@ -51,6 +51,7 @@ export default function MdDashboardPage() {
   const [partners, setPartners] = useState<BusinessPartner[]>([]);
   const [activities, setActivities] = useState<RecentActivity[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [monthFilter, setMonthFilter] = useState<string>('all'); // 'all', 'this_month', 'last_month', or 'YYYY-MM'
 
   const loadData = useCallback(async () => {
     setError('');
@@ -189,41 +190,99 @@ export default function MdDashboardPage() {
     loadData();
   }, [loadData]);
 
+  // Helper to extract YYYY-MM
+  const currentYearMonth = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+
+  const lastYearMonth = useMemo(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+
+  // Distinct available months from work orders and invoices
+  const availableMonths = useMemo(() => {
+    const set = new Set<string>();
+    set.add(currentYearMonth);
+    set.add(lastYearMonth);
+    for (const wo of workOrders) {
+      if (wo.wo_date) set.add(wo.wo_date.slice(0, 7));
+    }
+    for (const inv of invoices) {
+      if (inv.invoice_date) set.add(inv.invoice_date.slice(0, 7));
+    }
+    return Array.from(set).sort().reverse();
+  }, [workOrders, invoices, currentYearMonth, lastYearMonth]);
+
+  const formatMonthName = useCallback((ym: string) => {
+    const [y, m] = ym.split('-');
+    if (!y || !m) return ym;
+    const date = new Date(Number(y), Number(m) - 1, 1);
+    return date.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  }, []);
+
+  // Scoped data by selected month
+  const targetYm = useMemo(() => {
+    if (monthFilter === 'this_month') return currentYearMonth;
+    if (monthFilter === 'last_month') return lastYearMonth;
+    if (monthFilter === 'all') return null;
+    return monthFilter;
+  }, [monthFilter, currentYearMonth, lastYearMonth]);
+
+  const scopedWorkOrders = useMemo(() => {
+    if (!targetYm) return workOrders;
+    return workOrders.filter(
+      (w) => (w.wo_date && w.wo_date.startsWith(targetYm)) || (w.created_at && w.created_at.startsWith(targetYm))
+    );
+  }, [workOrders, targetYm]);
+
+  const scopedInvoices = useMemo(() => {
+    if (!targetYm) return invoices;
+    return invoices.filter(
+      (inv) =>
+        (inv.invoice_date && inv.invoice_date.startsWith(targetYm)) ||
+        (inv.generated_at && inv.generated_at.startsWith(targetYm))
+    );
+  }, [invoices, targetYm]);
+
   const stats = useMemo(() => {
-    const totalOrders = workOrders.length;
-    const activeOrders = workOrders.filter((w) => !['draft', 'completed', 'cancelled'].includes(w.status));
-    const pendingApproval = workOrders.filter((w) => w.status === 'pending_finance_approval');
-    const inProduction = workOrders.filter((w) => ['created', 'in_production'].includes(w.status));
-    const inQc = workOrders.filter((w) => ['qc_pending', 'partially_qc_approved'].includes(w.status));
-    const finishedGoodsReady = workOrders.filter((w) => (w.unbilledAcceptedQty ?? 0) > 0);
-    const readyForDispatch = workOrders.filter((w) => w.status === 'ready_for_dispatch');
-    const completedOrders = workOrders.filter((w) => w.status === 'completed');
+    const totalOrders = scopedWorkOrders.length;
+    const activeOrders = scopedWorkOrders.filter((w) => !['draft', 'completed', 'cancelled'].includes(w.status));
+    const pendingApproval = scopedWorkOrders.filter((w) => w.status === 'pending_finance_approval');
+    const inProduction = scopedWorkOrders.filter((w) => ['created', 'in_production'].includes(w.status));
+    const inQc = scopedWorkOrders.filter((w) => ['qc_pending', 'partially_qc_approved'].includes(w.status));
+    const finishedGoodsReady = scopedWorkOrders.filter((w) => (w.unbilledAcceptedQty ?? 0) > 0);
+    const readyForDispatch = scopedWorkOrders.filter((w) => w.status === 'ready_for_dispatch');
+    const completedOrders = scopedWorkOrders.filter((w) => w.status === 'completed');
 
     // Revenue metrics
-    const totalBilledRevenue = invoices.reduce((sum, inv) => sum + Number(inv.grand_total || 0), 0);
-    const subtotalRevenue = invoices.reduce((sum, inv) => sum + Number(inv.subtotal || 0), 0);
-    const totalTaxCollected = invoices.reduce(
+    const totalBilledRevenue = scopedInvoices.reduce((sum, inv) => sum + Number(inv.grand_total || 0), 0);
+    const subtotalRevenue = scopedInvoices.reduce((sum, inv) => sum + Number(inv.subtotal || 0), 0);
+    const totalTaxCollected = scopedInvoices.reduce(
       (sum, inv) => sum + Number(inv.cgst || 0) + Number(inv.sgst || 0) + Number(inv.igst || 0),
       0
     );
 
     // Unbilled Finished Goods Value
-    const totalUnbilledValue = workOrders.reduce((sum, w) => sum + (w.unbilledValue ?? 0), 0);
-    const totalUnbilledQty = workOrders.reduce((sum, w) => sum + (w.unbilledAcceptedQty ?? 0), 0);
+    const totalUnbilledValue = scopedWorkOrders.reduce((sum, w) => sum + (w.unbilledValue ?? 0), 0);
+    const totalUnbilledQty = scopedWorkOrders.reduce((sum, w) => sum + (w.unbilledAcceptedQty ?? 0), 0);
 
     // Pending Gate Dispatch
-    const pendingDispatchInvoices = invoices.filter((inv) => !inv.dispatched_at);
+    const pendingDispatchInvoices = scopedInvoices.filter((inv) => !inv.dispatched_at);
     const pendingDispatchValue = pendingDispatchInvoices.reduce((sum, inv) => sum + Number(inv.grand_total || 0), 0);
 
     // QC & Production stats
-    const totalOrderedQty = workOrders.reduce((sum, w) => sum + (w.totalOrderedQty ?? 0), 0);
-    const totalProducedQty = workOrders.reduce((sum, w) => sum + (w.totalProducedQty ?? 0), 0);
-    const totalAcceptedQty = workOrders.reduce((sum, w) => sum + (w.totalAcceptedQty ?? 0), 0);
-    const totalHeldQty = workOrders.reduce((sum, w) => sum + (w.totalHeldQty ?? 0), 0);
+    const totalOrderedQty = scopedWorkOrders.reduce((sum, w) => sum + (w.totalOrderedQty ?? 0), 0);
+    const totalProducedQty = scopedWorkOrders.reduce((sum, w) => sum + (w.totalProducedQty ?? 0), 0);
+    const totalAcceptedQty = scopedWorkOrders.reduce((sum, w) => sum + (w.totalAcceptedQty ?? 0), 0);
+    const totalHeldQty = scopedWorkOrders.reduce((sum, w) => sum + (w.totalHeldQty ?? 0), 0);
 
-    const qcPassRate = totalAcceptedQty + totalHeldQty > 0
-      ? Math.round((totalAcceptedQty / (totalAcceptedQty + totalHeldQty)) * 100)
-      : 100;
+    const qcPassRate =
+      totalAcceptedQty + totalHeldQty > 0
+        ? Math.round((totalAcceptedQty / (totalAcceptedQty + totalHeldQty)) * 100)
+        : 100;
 
     return {
       totalOrders,
@@ -247,15 +306,17 @@ export default function MdDashboardPage() {
       totalHeldQty,
       qcPassRate,
     };
-  }, [workOrders, invoices]);
+  }, [scopedWorkOrders, scopedInvoices]);
 
   // Filtered orders table
   const filteredOrders = useMemo(() => {
-    if (statusFilter === 'all') return workOrders;
-    if (statusFilter === 'active') return workOrders.filter((w) => !['draft', 'completed', 'cancelled'].includes(w.status));
-    if (statusFilter === 'unbilled') return workOrders.filter((w) => (w.unbilledAcceptedQty ?? 0) > 0);
-    return workOrders.filter((w) => w.status === statusFilter);
-  }, [workOrders, statusFilter]);
+    if (statusFilter === 'all') return scopedWorkOrders;
+    if (statusFilter === 'active')
+      return scopedWorkOrders.filter((w) => !['draft', 'completed', 'cancelled'].includes(w.status));
+    if (statusFilter === 'unbilled')
+      return scopedWorkOrders.filter((w) => (w.unbilledAcceptedQty ?? 0) > 0);
+    return scopedWorkOrders.filter((w) => w.status === statusFilter);
+  }, [scopedWorkOrders, statusFilter]);
 
   // Customer sales performance
   const partnerSales = useMemo(() => {
@@ -263,7 +324,7 @@ export default function MdDashboardPage() {
     for (const p of partners) {
       map.set(p.id, { partner: p, orderCount: 0, totalValue: 0 });
     }
-    for (const wo of workOrders) {
+    for (const wo of scopedWorkOrders) {
       if (wo.partner_id && map.has(wo.partner_id)) {
         const item = map.get(wo.partner_id)!;
         item.orderCount += 1;
@@ -274,7 +335,7 @@ export default function MdDashboardPage() {
       .filter((i) => i.orderCount > 0)
       .sort((a, b) => b.totalValue - a.totalValue)
       .slice(0, 5);
-  }, [partners, workOrders]);
+  }, [partners, scopedWorkOrders]);
 
   if (loading) {
     return (
@@ -314,6 +375,75 @@ export default function MdDashboardPage() {
           <Link href="/work-orders/new" className="btn-primary flex items-center gap-1.5 text-xs shadow-xs">
             <span>+</span> Create Work Order
           </Link>
+        </div>
+      </div>
+
+      {/* Monthly / Period Filter Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-kraft-200 bg-white px-4 py-3 shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-ink-800 uppercase tracking-wide flex items-center gap-1">
+            <span>📅</span> Period Filter:
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => setMonthFilter('all')}
+              className={`rounded-md px-3 py-1 text-xs font-bold transition-all ${
+                monthFilter === 'all'
+                  ? 'bg-forest-800 text-white shadow-xs'
+                  : 'bg-kraft-100 text-ink-700 hover:bg-kraft-200'
+              }`}
+            >
+              All Time / Full FY
+            </button>
+            <button
+              onClick={() => setMonthFilter('this_month')}
+              className={`rounded-md px-3 py-1 text-xs font-bold transition-all ${
+                monthFilter === 'this_month'
+                  ? 'bg-forest-800 text-white shadow-xs'
+                  : 'bg-kraft-100 text-ink-700 hover:bg-kraft-200'
+              }`}
+            >
+              This Month ({formatMonthName(currentYearMonth)})
+            </button>
+            <button
+              onClick={() => setMonthFilter('last_month')}
+              className={`rounded-md px-3 py-1 text-xs font-bold transition-all ${
+                monthFilter === 'last_month'
+                  ? 'bg-forest-800 text-white shadow-xs'
+                  : 'bg-kraft-100 text-ink-700 hover:bg-kraft-200'
+              }`}
+            >
+              Last Month ({formatMonthName(lastYearMonth)})
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-medium text-ink-500">Specific Month:</span>
+          <select
+            value={['all', 'this_month', 'last_month'].includes(monthFilter) ? '' : monthFilter}
+            onChange={(e) => {
+              if (e.target.value) setMonthFilter(e.target.value);
+            }}
+            className="input !py-1 !px-2.5 text-xs max-w-[180px]"
+          >
+            <option value="">Select Month…</option>
+            {availableMonths.map((ym) => (
+              <option key={ym} value={ym}>
+                {formatMonthName(ym)}
+              </option>
+            ))}
+          </select>
+
+          {monthFilter !== 'all' && (
+            <button
+              onClick={() => setMonthFilter('all')}
+              className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100"
+              title="Clear monthly filter"
+            >
+              ✕ Clear Filter
+            </button>
+          )}
         </div>
       </div>
 
