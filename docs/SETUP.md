@@ -149,6 +149,32 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_ClscppU0a-LutkRhS13oWw_6IWqkGjk
 Both values are safe to ship in the browser bundle — RLS is what actually
 protects the data, not secrecy of these values.
 
+## 4b. Turn on the automated database backup
+
+`.github/workflows/db-backup.yml` runs every 2 days and uploads a full
+`.sql`/`.json` backup as a workflow artifact (Actions tab → the run →
+Artifacts, kept 90 days). It needs one secret that is **not** safe to ship
+anywhere, unlike the values above:
+
+1. Supabase dashboard → **Project Settings → API Keys** → copy the
+   **`service_role`** **secret** key (not the publishable/anon one above —
+   this one bypasses Row-Level Security entirely, which is exactly why the
+   backup job needs it and why the app itself never uses it).
+2. GitHub → this repo → **Settings → Secrets and variables → Actions →
+   New repository secret**. Name it exactly `SUPABASE_SERVICE_ROLE_KEY` and
+   paste the key as the value.
+
+Never put this key in a workflow file, in `.env.local`, or anywhere in
+`apps/web` — it's server-side-only, the same rule the `manage-app-users`
+Edge Function already follows. Without this secret the backup workflow
+now **fails loudly** (a red ✗ in the Actions tab) rather than silently
+uploading an empty backup, which is what it did before this was fixed —
+so a failed run here means the secret is missing or wrong, not that
+nothing is being backed up.
+
+You can trigger a run immediately instead of waiting 2 days: **Actions →
+Automated Database Backup (Every 2 Days) → Run workflow**.
+
 ## 5. Run it
 
 ```bash

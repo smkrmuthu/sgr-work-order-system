@@ -243,7 +243,7 @@ export default function BackupPage() {
           <div className="flex items-start gap-2.5">
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-forest-800 text-[10px] font-bold text-white">1</span>
             <div>
-              <strong>Setup Clean PostgreSQL / Supabase Project:</strong> If rebuilding on a new project, execute all migration SQL files in <code className="font-mono bg-kraft-100 px-1 py-0.5 rounded">db/migrations/</code> (from <code className="font-mono">001_schema.sql</code> to <code className="font-mono">011_md_approve_and_revisions.sql</code>).
+              <strong>Setup Clean PostgreSQL / Supabase Project:</strong> If rebuilding on a new project, execute all migration SQL files in <code className="font-mono bg-kraft-100 px-1 py-0.5 rounded">db/migrations/</code> (from <code className="font-mono">001_schema.sql</code> to the highest-numbered file in that folder).
             </div>
           </div>
           <div className="flex items-start gap-2.5">
