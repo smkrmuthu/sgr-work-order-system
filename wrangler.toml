@@ -1,0 +1,13 @@
+# Cloudflare Workers & Pages (static assets) config for this app's Cloudflare project.
+# Build command stays `npm run build` (root package.json -> apps/web, output 'export' in next.config.ts);
+# this file just tells `wrangler deploy` which built folder to serve and how to resolve clean URLs.
+name = "sgr-work"
+compatibility_date = "2026-10-01"
+
+[assets]
+directory = "apps/web/out"
+# Next's static export writes one real .html file per route (e.g. out/work-orders.html), not a single
+# SPA index.html — "auto-trailing-slash" resolves a clean URL like /work-orders to that file, matching
+# how this already behaves on GitHub Pages. Not an SPA fallback: an unmatched path still 404s.
+html_handling = "auto-trailing-slash"
+not_found_handling = "404-page"
