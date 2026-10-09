@@ -113,6 +113,7 @@ export interface WorkOrder {
   wo_date: string; // date
   delivery_date: string | null;
   doc_ref: string | null;
+  sales_person_id: string | null;
   expected_completion_date: string | null;
   test_cert_required: boolean;
   inspection_report_required: boolean;
@@ -300,6 +301,7 @@ export interface SaveDraftPayload {
   wo_date?: string;
   delivery_date?: string;
   doc_ref?: string;
+  sales_person_id?: string;
   test_cert_required?: boolean;
   inspection_report_required?: boolean;
   notes?: SaveDraftNote[];

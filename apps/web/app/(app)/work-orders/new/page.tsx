@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import type { BusinessPartner, DeliveryLocation, Part, Category, WorkOrder } from '@sgr/types';
+import type { BusinessPartner, DeliveryLocation, Part, Category, SalesPerson, WorkOrder } from '@sgr/types';
 
 interface LineRow {
   key: string;
@@ -51,6 +51,8 @@ function WorkOrderForm() {
   const [woDate, setWoDate] = useState(today);
   const [deliveryDate, setDeliveryDate] = useState('');
   const [docRef, setDocRef] = useState('');
+  const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
+  const [salesPersonId, setSalesPersonId] = useState('');
   const [testCert, setTestCert] = useState(false);
   const [inspectionReport, setInspectionReport] = useState(false);
   const [packingRequired, setPackingRequired] = useState(true);
@@ -75,12 +77,14 @@ function WorkOrderForm() {
 
   useEffect(() => {
     (async () => {
-      const [{ data: p }, { data: l }, { data: parts }, { data: cats }] = await Promise.all([
+      const [{ data: p }, { data: l }, { data: parts }, { data: cats }, { data: sps }] = await Promise.all([
         supabase.from('business_partners').select('*').order('name'),
         supabase.from('delivery_locations').select('*'),
         supabase.from('parts').select('*').order('part_no'),
         supabase.from('categories').select('*'),
+        supabase.from('sales_persons').select('*').order('name'),
       ]);
+      setSalesPersons(sps ?? []);
       setPartners(p ?? []);
       setLocations(l ?? []);
       setParts(parts ?? []);
@@ -113,6 +117,7 @@ function WorkOrderForm() {
       setWoDate(wo.wo_date);
       setDeliveryDate(wo.delivery_date ?? '');
       setDocRef(wo.doc_ref ?? '');
+      setSalesPersonId(wo.sales_person_id ?? '');
       setTestCert(wo.test_cert_required);
       setInspectionReport(wo.inspection_report_required);
       setPackingRequired(wo.packing_required);
@@ -147,7 +152,8 @@ function WorkOrderForm() {
     delivery_location_id: locationId || undefined,
     wo_date: woDate,
     delivery_date: deliveryDate || undefined,
-    doc_ref: docRef || undefined,
+    doc_ref: docRef.trim() || undefined,
+    sales_person_id: salesPersonId || undefined,
     test_cert_required: testCert,
     inspection_report_required: inspectionReport,
     notes: allNotes().map((text) => ({ text })),
@@ -196,6 +202,7 @@ function WorkOrderForm() {
   }
 
   async function createWorkOrder() {
+    if (!docRef.trim()) { setError('Document Reference is required.'); return; }
     setCreating(true);
     setError('');
     const id = await saveDraft();
@@ -209,6 +216,7 @@ function WorkOrderForm() {
 
   // Editing an order that is already waiting for Finance: save, then go back to it (it stays pending).
   async function saveChanges() {
+    if (!docRef.trim()) { setError('Document Reference is required.'); return; }
     const id = await saveDraft();
     if (id) router.push(`/work-orders/detail?id=${id}`);
   }
@@ -251,10 +259,17 @@ function WorkOrderForm() {
           <Field label="WO Date">
             <input type="date" min={editing?.wo_date && editing.wo_date < today ? editing.wo_date : today} value={woDate} onChange={(e) => setWoDate(e.target.value)} className="input" />
           </Field>
-          <Field label="Document Reference">
-            <input value={docRef} onChange={(e) => setDocRef(e.target.value)} placeholder="Optional" className="input" />
+          <Field label="Document Reference *">
+            <input value={docRef} onChange={(e) => setDocRef(e.target.value)} className="input" />
           </Field>
-          <div />
+          <Field label="Sales Person">
+            <select value={salesPersonId} onChange={(e) => setSalesPersonId(e.target.value)} className="input">
+              <option value="">Select sales person…</option>
+              {salesPersons.filter((sp) => sp.is_active || sp.id === salesPersonId).map((sp) => (
+                <option key={sp.id} value={sp.id}>{sp.name}{sp.location ? ` — ${sp.location}` : ''}</option>
+              ))}
+            </select>
+          </Field>
           <Field label="Business Partner (Vendor) *">
             <select value={partnerId} onChange={(e) => { setPartnerId(e.target.value); setLocationId(''); }} className="input">
               <option value="">Select vendor…</option>
