@@ -142,19 +142,35 @@ export default function PlannerPage() {
               {!editingDate ? (
                 <>
                   <span className="font-bold">{selected.expected_completion_date ?? '—'}</span>
-                  <button onClick={() => { setEditingDate(true); setError(''); setDateReason(''); setNewCompletionDate(selected.expected_completion_date ?? ''); }} className="btn-secondary !px-2 !py-1">
+                  <button onClick={() => { setEditingDate(true); setError(''); setDateReason(''); setNewCompletionDate(''); }} className="btn-secondary !px-2 !py-1">
                     {selected.expected_completion_date ? 'Change' : 'Set date'}
                   </button>
                 </>
               ) : (
-                <>
-                  <input type="date" min={new Date().toISOString().slice(0, 10)} value={newCompletionDate} onChange={(e) => setNewCompletionDate(e.target.value)} className="input w-auto" />
-                  {selected.expected_completion_date && newCompletionDate && newCompletionDate !== selected.expected_completion_date && (
-                    <input value={dateReason} onChange={(e) => setDateReason(e.target.value)} placeholder="Reason for the change (required)" className="input min-w-[260px] flex-1" />
+                <div className="flex w-full flex-col gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-xs font-bold text-ink-700">Current:</span>
+                    <span className="font-bold">{selected.expected_completion_date ?? 'not set'}</span>
+                    <span className="text-ink-300">→</span>
+                    <span className="text-xs font-bold text-ink-700">New date:</span>
+                    <input type="date" min={new Date().toISOString().slice(0, 10)} value={newCompletionDate} onChange={(e) => setNewCompletionDate(e.target.value)} className="input w-auto" />
+                    {selected.expected_completion_date && newCompletionDate && newCompletionDate !== selected.expected_completion_date && (
+                      <span className="rounded-md bg-amber-50 px-2 py-1 font-mono text-xs font-bold text-amber-900">
+                        {selected.expected_completion_date} → {newCompletionDate}
+                      </span>
+                    )}
+                  </div>
+                  {selected.expected_completion_date && (
+                    <div className="max-w-xl">
+                      <label className="mb-1 block text-[11px] font-bold text-ink-700">Reason for the change *</label>
+                      <input value={dateReason} onChange={(e) => setDateReason(e.target.value)} placeholder="Why is the completion date changing?" className="input" />
+                    </div>
                   )}
-                  <button onClick={() => setEditingDate(false)} className="btn-secondary !px-2 !py-1">Cancel</button>
-                  <button onClick={saveCompletionDate} className="btn-primary !px-2 !py-1">Save</button>
-                </>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditingDate(false)} className="btn-secondary !px-2 !py-1">Cancel</button>
+                    <button onClick={saveCompletionDate} className="btn-primary !px-2 !py-1">Save</button>
+                  </div>
+                </div>
               )}
             </div>
             {dateChanges.length > 0 && (
