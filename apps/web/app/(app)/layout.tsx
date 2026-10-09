@@ -22,7 +22,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
 // screens is independently enforced by RLS (db/migrations/002_rls.sql), never by this list alone.
 const NAV: { href: string; label: string; roles: UserRole[] }[] = [
   { href: '/dashboard', label: 'Dashboard', roles: ['md', 'admin', 'planner'] },
-  { href: '/work-orders', label: 'Work Orders', roles: ['creator', 'md', 'planner', 'qc', 'finance', 'admin'] },
+  { href: '/work-orders', label: 'Work Orders', roles: ['creator', 'md', 'finance', 'admin'] },
   { href: '/finance', label: 'Finance Approval', roles: ['finance', 'md', 'admin'] },
   { href: '/planner', label: 'Production Planner', roles: ['planner', 'md', 'admin'] },
   { href: '/qc', label: 'QC', roles: ['qc', 'md', 'admin'] },
@@ -33,6 +33,10 @@ const NAV: { href: string; label: string; roles: UserRole[] }[] = [
   { href: '/item-master', label: 'Item Master', roles: ['creator', 'md', 'admin'] },
   { href: '/vendor-master', label: 'Vendor Master', roles: ['creator', 'md', 'admin'] },
 ];
+
+// Where each role starts: Planner has a Dashboard, QC goes straight to its inspection queue, MD/Admin to theirs.
+const homeFor = (role?: UserRole | null) =>
+  role === 'md' || role === 'admin' || role === 'planner' ? '/dashboard' : role === 'qc' ? '/qc' : '/work-orders';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { loading, session, profile } = useAuth();
@@ -73,7 +77,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Top bar */}
         <div className="mx-auto flex h-14 sm:h-[60px] max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-7">
           {/* Logo & Brand */}
-          <Link href={role === 'md' || role === 'admin' || role === 'planner' ? '/dashboard' : '/work-orders'} className="flex items-center gap-2.5">
+          <Link href={homeFor(role)} className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg bg-white p-0.5 shrink-0">
               <Image src={logo} alt="SGR" width={57} height={60} className="h-6 sm:h-7 w-auto" priority />
             </div>

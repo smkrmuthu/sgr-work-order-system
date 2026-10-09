@@ -19,7 +19,7 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!loading && session) router.replace('/work-orders');
+    if (!loading && session) router.replace('/'); // the root page sends each role to its own home
   }, [loading, session, router]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -32,7 +32,7 @@ export default function LoginPage() {
       setError(/invalid|credentials/i.test(error.message) ? 'Incorrect email or password.' : error.message);
       return;
     }
-    router.replace('/work-orders');
+    router.replace('/'); // the root page sends each role to its own home
   }
 
   return (

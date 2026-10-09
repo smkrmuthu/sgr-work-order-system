@@ -14,6 +14,8 @@ export default function RootPage() {
       router.replace('/login');
     } else if (profile?.role === 'md' || profile?.role === 'admin' || profile?.role === 'planner') {
       router.replace('/dashboard');
+    } else if (profile?.role === 'qc') {
+      router.replace('/qc');
     } else {
       router.replace('/work-orders');
     }
