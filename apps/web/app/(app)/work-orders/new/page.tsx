@@ -56,10 +56,11 @@ function WorkOrderForm() {
   const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
   const [salesPersonId, setSalesPersonId] = useState('');
   const [testCert, setTestCert] = useState(false);
-  const [inspectionReport, setInspectionReport] = useState(false);
+  const [gsmRequired, setGsmRequired] = useState(false);
+  const [gsmInner, setGsmInner] = useState('');
+  const [gsmOuter, setGsmOuter] = useState('');
   const [packingRequired, setPackingRequired] = useState(true);
   const [bundleQty, setBundleQty] = useState('50');
-  const [palletHeight, setPalletHeight] = useState('46');
   const [separateVehicle, setSeparateVehicle] = useState(false);
   const [transportNotes, setTransportNotes] = useState('');
   // Additional notes are separate points, not a paragraph (each one becomes a row in work_order_notes).
@@ -110,8 +111,8 @@ function WorkOrderForm() {
       if (!s) return;
       setDraftId(s.draftId ?? null); setPartnerId(s.partnerId ?? ''); setLocationId(s.locationId ?? '');
       setWoDate(s.woDate || today); setDeliveryDate(s.deliveryDate ?? ''); setDocRef(s.docRef ?? '');
-      setSalesPersonId(s.salesPersonId ?? ''); setTestCert(!!s.testCert); setInspectionReport(!!s.inspectionReport);
-      setPackingRequired(s.packingRequired ?? true); setBundleQty(s.bundleQty ?? ''); setPalletHeight(s.palletHeight ?? '');
+      setSalesPersonId(s.salesPersonId ?? ''); setTestCert(!!s.testCert); setGsmRequired(!!s.gsmRequired); setGsmInner(s.gsmInner ?? ''); setGsmOuter(s.gsmOuter ?? '');
+      setPackingRequired(s.packingRequired ?? true); setBundleQty(s.bundleQty ?? '');;
       setSeparateVehicle(!!s.separateVehicle); setTransportNotes(s.transportNotes ?? '');
       setNotes(s.notes ?? []); setNoteInput(s.noteInput ?? '');
       const partById = new Map(allPartsRef.current.map((p) => [p.id, p]));
@@ -126,13 +127,13 @@ function WorkOrderForm() {
     if (editId || !restoredRef.current) return;
     try {
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-        draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, testCert, inspectionReport,
-        packingRequired, bundleQty, palletHeight, separateVehicle, transportNotes, notes, noteInput,
+        draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, testCert, gsmRequired, gsmInner, gsmOuter,
+        packingRequired, bundleQty, separateVehicle, transportNotes, notes, noteInput,
         lines: lines.map((l) => ({ key: l.key, partId: l.part.id, qty: l.qty, remarks: l.remarks, customerRef: l.customerRef, customerPrice: l.customerPrice })),
       }));
     } catch { /* ignore */ }
-  }, [editId, draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, testCert, inspectionReport,
-      packingRequired, bundleQty, palletHeight, separateVehicle, transportNotes, notes, noteInput, lines]);
+  }, [editId, draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, testCert, gsmRequired, gsmInner, gsmOuter,
+      packingRequired, bundleQty, separateVehicle, transportNotes, notes, noteInput, lines]);
 
   // Editing an existing order: load it once the reference data is in.
   useEffect(() => {
@@ -164,10 +165,11 @@ function WorkOrderForm() {
       setDocRef(wo.doc_ref ?? '');
       setSalesPersonId(wo.sales_person_id ?? '');
       setTestCert(wo.test_cert_required);
-      setInspectionReport(wo.inspection_report_required);
+      setGsmRequired(wo.gsm_required);
+      setGsmInner(wo.gsm_inner != null ? String(wo.gsm_inner) : '');
+      setGsmOuter(wo.gsm_outer != null ? String(wo.gsm_outer) : '');
       setPackingRequired(wo.packing_required);
       setBundleQty(wo.units_per_bundle != null ? String(wo.units_per_bundle) : '');
-      setPalletHeight(wo.pallet_height_in != null ? String(wo.pallet_height_in) : '');
       setSeparateVehicle(wo.separate_vehicle_required);
       setTransportNotes(wo.transport_notes ?? '');
       setNotes((ns ?? []).map((n) => n.note));
@@ -200,11 +202,12 @@ function WorkOrderForm() {
     doc_ref: docRef.trim() || undefined,
     sales_person_id: salesPersonId || undefined,
     test_cert_required: testCert,
-    inspection_report_required: inspectionReport,
+    gsm_required: gsmRequired,
+    gsm_inner: gsmRequired && gsmInner.trim() ? Number(gsmInner) : undefined,
+    gsm_outer: gsmRequired && gsmOuter.trim() ? Number(gsmOuter) : undefined,
     notes: allNotes().map((text) => ({ text })),
     packing_required: packingRequired,
     units_per_bundle: bundleQty ? Number(bundleQty) : undefined,
-    pallet_height_in: palletHeight ? Number(palletHeight) : undefined,
     separate_vehicle_required: separateVehicle,
     transport_notes: transportNotes || undefined,
     lines: lines.map((l) => ({
@@ -222,6 +225,8 @@ function WorkOrderForm() {
     if (deliveryDate && woDate && deliveryDate < woDate) { setError('Delivery Date cannot be before the WO Date.'); return null; }
     const badPrice = lines.find((l) => l.customerPrice.trim() !== '' && !(Number(l.customerPrice) >= 0));
     if (badPrice) { setError(`${badPrice.part.part_no}: Customer Price must be a number, 0 or more.`); return null; }
+    const badGsm = gsmRequired && [gsmInner, gsmOuter].some((v) => v.trim() !== '' && !(Number(v) > 0));
+    if (badGsm) { setError('GSM Inner and Outer must be numbers above 0.'); return null; }
     setSaving(true);
     setError('');
     const { data, error } = await supabase.rpc('save_draft', { p_id: draftId, p: payload() });
@@ -253,6 +258,7 @@ function WorkOrderForm() {
 
   async function createWorkOrder() {
     if (!docRef.trim()) { setError('Document Reference is required.'); return; }
+    if (gsmRequired && !(Number(gsmInner) > 0 && Number(gsmOuter) > 0)) { setError('GSM is required: enter both Inner and Outer (numbers above 0).'); return; }
     setCreating(true);
     setError('');
     const id = await saveDraft();
@@ -443,7 +449,13 @@ function WorkOrderForm() {
         <div className="grid grid-cols-1 gap-6 p-5 sm:grid-cols-2">
           <div className="flex flex-col gap-3">
             <Toggle label="Test Certificate Required" checked={testCert} onChange={setTestCert} />
-            <Toggle label="Inspection Report Required" checked={inspectionReport} onChange={setInspectionReport} />
+            <Toggle label="GSM Required" checked={gsmRequired} onChange={setGsmRequired} />
+            {gsmRequired && (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="GSM — Inner"><input type="number" min={0} step="any" value={gsmInner} onChange={(e) => setGsmInner(e.target.value)} className="input" /></Field>
+                <Field label="GSM — Outer"><input type="number" min={0} step="any" value={gsmOuter} onChange={(e) => setGsmOuter(e.target.value)} className="input" /></Field>
+              </div>
+            )}
             <Field label="Additional Notes">
               <ol className="mb-2 flex flex-col gap-1.5">
                 {notes.length === 0 && <li className="text-xs text-ink-300">No notes yet — add each point separately.</li>}
@@ -477,10 +489,7 @@ function WorkOrderForm() {
           <div className="flex flex-col gap-3">
             <Toggle label="Packing List Required" checked={packingRequired} onChange={setPackingRequired} />
             {packingRequired && (
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Units per Bundle"><input type="number" value={bundleQty} onChange={(e) => setBundleQty(e.target.value)} className="input" /></Field>
-                <Field label="Pallet Height (in)"><input type="number" value={palletHeight} onChange={(e) => setPalletHeight(e.target.value)} className="input" /></Field>
-              </div>
+              <Field label="Units per Bundle"><input type="number" value={bundleQty} onChange={(e) => setBundleQty(e.target.value)} className="input" /></Field>
             )}
             <Toggle label="Separate Vehicle Required" checked={separateVehicle} onChange={setSeparateVehicle} />
             <Field label="Special Instructions">

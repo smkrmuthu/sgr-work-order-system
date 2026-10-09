@@ -116,11 +116,14 @@ export interface WorkOrder {
   sales_person_id: string | null;
   expected_completion_date: string | null;
   test_cert_required: boolean;
-  inspection_report_required: boolean;
+  gsm_required: boolean; // 019: when true, gsm_inner and gsm_outer are both set once the order is created
+  gsm_inner: number | null;
+  gsm_outer: number | null;
+  inspection_report_required: boolean; // retired from the form in 019; old orders keep their value
   additional_notes: string | null;
   packing_required: boolean;
   units_per_bundle: number | null;
-  pallet_height_in: number | null;
+  pallet_height_in: number | null; // retired from the form in 019
   separate_vehicle_required: boolean;
   transport_notes: string | null;
   created_by: string | null;
@@ -311,11 +314,12 @@ export interface SaveDraftPayload {
   doc_ref?: string;
   sales_person_id?: string;
   test_cert_required?: boolean;
-  inspection_report_required?: boolean;
+  gsm_required?: boolean;
+  gsm_inner?: number;
+  gsm_outer?: number;
   notes?: SaveDraftNote[];
   packing_required?: boolean;
   units_per_bundle?: number;
-  pallet_height_in?: number;
   separate_vehicle_required?: boolean;
   transport_notes?: string;
   lines?: SaveDraftLine[];

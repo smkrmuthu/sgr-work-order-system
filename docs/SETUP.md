@@ -69,6 +69,9 @@ files **in order**, pasting each one's full contents and clicking Run:
     read, so Planner/QC can't get it through the API. It also removes the
     price from revision history (existing entries are scrubbed; a price
     change is now logged as "customer price changed" without figures)
+17. `db/migrations/019_gsm_requirement.sql` — GSM Required (with Inner and
+    Outer figures) on the Work Order; Inspection Report Required and Pallet
+    Height are retired from the form (old values stay in the database)
 
 All of them are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.

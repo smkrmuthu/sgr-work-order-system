@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -735,5 +735,29 @@ const cp2 = (await as(CREATOR, () => db.query(`select p.customer_price from app.
 ok(cp2.length === 1 && Number(cp2[0].customer_price) === 4, 'saving a draft again replaces its price (no stale or duplicate rows): ' + JSON.stringify(cp2));
 const cpExport = (await as(MD, () => db.query(`select app.export_table('work_order_line_prices') as rows`))).rows[0].rows;
 ok(Array.isArray(cpExport) && cpExport.length >= 2, 'the MD backup export includes the prices table: ' + cpExport.length + ' row(s)');
+
+
+// ---------------------------------------------------------------- GSM (019)
+const gsmErr = async (payload, submit = false) => {
+  try {
+    const id = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+      partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-06-01', lines: [{ part_id: p1.id, qty: 1 }], ...payload })]))).rows[0].id;
+    if (submit) await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [id]));
+    return { id, err: null };
+  } catch (e) { return { id: null, err: e.message }; }
+};
+const g1 = await gsmErr({ gsm_required: true, gsm_inner: 120, gsm_outer: 150 }, true);
+ok(!g1.err, 'GSM required with Inner and Outer: order is created: ' + g1.err);
+const g1row = (await db.query(`select gsm_required, gsm_inner, gsm_outer from app.work_orders where id=$1`, [g1.id])).rows[0];
+ok(g1row.gsm_required && Number(g1row.gsm_inner) === 120 && Number(g1row.gsm_outer) === 150, 'GSM figures are stored: ' + JSON.stringify(g1row));
+const g2 = await gsmErr({ gsm_required: true, gsm_inner: 120 }, true);
+ok(/work_orders_gsm_complete/.test(g2.err || ''), 'GSM required but Outer missing: the order cannot be created: ' + g2.err);
+const g3 = await gsmErr({ gsm_required: true, gsm_inner: 120 });
+ok(!g3.err, 'an incomplete GSM is fine while it is still a draft');
+const g4 = await gsmErr({ gsm_required: false, gsm_inner: 120, gsm_outer: 150 }, true);
+const g4row = (await db.query(`select gsm_required, gsm_inner, gsm_outer from app.work_orders where id=$1`, [g4.id])).rows[0];
+ok(!g4.err && !g4row.gsm_required && g4row.gsm_inner === null && g4row.gsm_outer === null, 'GSM switched off: any figures are dropped: ' + JSON.stringify(g4row));
+const g5 = await gsmErr({ gsm_required: true, gsm_inner: 0, gsm_outer: 150 });
+ok(/gsm_inner/.test(g5.err || ''), 'GSM must be above zero: ' + g5.err);
 
 console.log('\nDone.');
