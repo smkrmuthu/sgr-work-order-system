@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { STATUS_LABEL, STATUS_BADGE_CLASS, STATUS_ORDER } from '@/lib/statusLabels';
 import type { WorkOrder, WorkOrderLine, Invoice, BusinessPartner, WoStatus } from '@sgr/types';
+import ProductionDashboard from './ProductionDashboard';
 
 interface ExtendedWo extends WorkOrder {
   partner?: { code: string; name: string } | null;
@@ -43,7 +44,15 @@ const formatCompact = (n: number) => {
   return formatRupees(n);
 };
 
-export default function MdDashboardPage() {
+// The Production Planner gets their own, price-free dashboard; everyone else here (MD/Admin) gets the full one.
+// A separate component, so the MD's revenue queries never run for a Planner login.
+export default function DashboardPage() {
+  const { profile } = useAuth();
+  if (!profile) return null;
+  return profile.role === 'planner' ? <ProductionDashboard /> : <MdDashboardPage />;
+}
+
+function MdDashboardPage() {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);

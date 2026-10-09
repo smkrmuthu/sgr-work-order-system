@@ -33,7 +33,9 @@ export default function PlannerPage() {
     const { data } = await supabase.from('work_orders').select('*')
       .not('status', 'in', '("draft","pending_finance_approval","completed","cancelled")').order('created_at');
     setOrders(data ?? []);
-    if (!selectedId && data && data.length) setSelectedId(data[0]!.id);
+    // The Dashboard's "Open in Planner" link arrives with ?id=<work order>.
+    const wanted = new URLSearchParams(window.location.search).get('id');
+    if (!selectedId && data && data.length) setSelectedId(data.find((o) => o.id === wanted)?.id ?? data[0]!.id);
   }, [selectedId]);
 
   const loadLines = useCallback(async (woId: string) => {

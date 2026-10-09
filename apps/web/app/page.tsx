@@ -12,7 +12,7 @@ export default function RootPage() {
     if (loading) return;
     if (!session) {
       router.replace('/login');
-    } else if (profile?.role === 'md' || profile?.role === 'admin') {
+    } else if (profile?.role === 'md' || profile?.role === 'admin' || profile?.role === 'planner') {
       router.replace('/dashboard');
     } else {
       router.replace('/work-orders');
