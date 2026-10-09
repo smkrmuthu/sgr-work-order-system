@@ -14,6 +14,11 @@ export default function WorkOrdersPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [q, setQ] = useState('');
   const [error, setError] = useState('');
+  const [hasUnsaved, setHasUnsaved] = useState(false);
+  // A new Work Order started but not yet created is kept by the form in sessionStorage (new/page.tsx).
+  useEffect(() => {
+    try { setHasUnsaved(!!sessionStorage.getItem('sgr.newWorkOrderForm')); } catch { /* ignore */ }
+  }, []);
 
   useEffect(() => {
     if (!profile) return;
@@ -70,6 +75,17 @@ export default function WorkOrdersPage() {
           </Link>
         )}
       </div>
+
+      {hasUnsaved && (
+        <div className="flex items-center justify-between rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <span>You have a new Work Order in progress that hasn&apos;t been created yet.</span>
+          <span className="flex gap-2">
+            <Link href="/work-orders/new" className="rounded-md bg-forest-700 px-3 py-1 text-xs font-bold text-white hover:bg-forest-800">Continue</Link>
+            <button onClick={() => { try { sessionStorage.removeItem('sgr.newWorkOrderForm'); } catch { /* ignore */ } setHasUnsaved(false); }}
+              className="rounded-md border border-kraft-300 bg-white px-3 py-1 text-xs font-bold text-ink-700">Discard</button>
+          </span>
+        </div>
+      )}
 
       <input
         placeholder="Search by Work Order #, vendor code or name…"

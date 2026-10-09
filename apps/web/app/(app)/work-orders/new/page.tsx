@@ -94,6 +94,43 @@ function WorkOrderForm() {
     })();
   }, []);
 
+  // A brand-new, not-yet-saved Work Order survives leaving this page (e.g. a peek at the Dashboard):
+  // the form is kept in sessionStorage and put back when you return to /work-orders/new. Cleared on
+  // Create, or when a new order is explicitly discarded by opening a different one.
+  const DRAFT_KEY = 'sgr.newWorkOrderForm';
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (editId || !refReady || restoredRef.current) return;
+    restoredRef.current = true;
+    try {
+      const s = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null');
+      if (!s) return;
+      setDraftId(s.draftId ?? null); setPartnerId(s.partnerId ?? ''); setLocationId(s.locationId ?? '');
+      setWoDate(s.woDate || today); setDeliveryDate(s.deliveryDate ?? ''); setDocRef(s.docRef ?? '');
+      setSalesPersonId(s.salesPersonId ?? ''); setTestCert(!!s.testCert); setInspectionReport(!!s.inspectionReport);
+      setPackingRequired(s.packingRequired ?? true); setBundleQty(s.bundleQty ?? ''); setPalletHeight(s.palletHeight ?? '');
+      setSeparateVehicle(!!s.separateVehicle); setTransportNotes(s.transportNotes ?? '');
+      setNotes(s.notes ?? []); setNoteInput(s.noteInput ?? '');
+      const partById = new Map(allPartsRef.current.map((p) => [p.id, p]));
+      setLines((s.lines ?? []).flatMap((l: { key: string; partId: string; qty: number; remarks: string; customerRef: string }) => {
+        const part = partById.get(l.partId);
+        return part ? [{ key: l.key, part, qty: l.qty, remarks: l.remarks, customerRef: l.customerRef }] : [];
+      }));
+    } catch { /* storage unavailable or corrupt — start blank */ }
+  }, [editId, refReady, today]);
+
+  useEffect(() => {
+    if (editId || !restoredRef.current) return;
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+        draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, testCert, inspectionReport,
+        packingRequired, bundleQty, palletHeight, separateVehicle, transportNotes, notes, noteInput,
+        lines: lines.map((l) => ({ key: l.key, partId: l.part.id, qty: l.qty, remarks: l.remarks, customerRef: l.customerRef })),
+      }));
+    } catch { /* ignore */ }
+  }, [editId, draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, testCert, inspectionReport,
+      packingRequired, bundleQty, palletHeight, separateVehicle, transportNotes, notes, noteInput, lines]);
+
   // Editing an existing order: load it once the reference data is in.
   useEffect(() => {
     if (!editId || !refReady || !profile) return;
@@ -211,6 +248,7 @@ function WorkOrderForm() {
     setCreating(false);
     if (error) { setError(error.message); return; }
     const wo = Array.isArray(data) ? data[0] : data;
+    try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
     router.push(`/work-orders/detail?id=${wo.id}`);
   }
 
