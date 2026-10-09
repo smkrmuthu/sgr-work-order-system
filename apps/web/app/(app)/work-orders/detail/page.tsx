@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { lineLengthM, fmtMeters, partLengthMm } from '@/lib/partLength';
 import { useAuth } from '@/lib/auth';
 import { openQcFile } from '@/lib/qcFiles';
+import { openSalesFile } from '@/lib/salesOrderFiles';
 import { STATUS_LABEL, STATUS_ORDER, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type {
   WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
@@ -52,6 +53,7 @@ function WorkOrderDetail() {
   const [notes, setNotes] = useState<WorkOrderNote[]>([]);
   const [dateChanges, setDateChanges] = useState<CompletionDateChange[]>([]);
   const [qcFiles, setQcFiles] = useState<Attachment[]>([]);
+  const [salesFiles, setSalesFiles] = useState<Attachment[]>([]);
   const [history, setHistory] = useState<StatusHistoryEntry[]>([]);
   const [fileError, setFileError] = useState('');
   const [invoices, setInvoices] = useState<(Invoice & { lines: InvoiceLine[] })[]>([]);
@@ -105,6 +107,9 @@ function WorkOrderDetail() {
     setNotes(noteRows ?? []);
     const { data: dcRows } = await supabase.from('completion_date_changes').select('*').eq('work_order_id', id).order('changed_at', { ascending: false });
     setDateChanges(dcRows ?? []);
+    // Planner/QC get no rows back from the database for these, so there is nothing to hide on screen.
+    const { data: soRows } = await supabase.from('attachments').select('*').eq('work_order_id', id).eq('kind', 'sales_order').order('uploaded_at');
+    setSalesFiles(soRows ?? []);
     setQcFiles(fileRows ?? []);
     setHistory(historyRows ?? []);
     setUsers(Object.fromEntries((allUsers ?? []).map((u) => [u.id, u])));
@@ -180,6 +185,7 @@ function WorkOrderDetail() {
       const cpChanged = customer_price !== (l.customer_price ?? null);
       if (qty !== l.qty || final_price !== l.final_price || cpChanged) changedLines.push({ id: l.id, qty, final_price, ...(cpChanged ? { customer_price } : {}) });
     }
+    if (!deliveryDate) { setSaving(false); setError('Delivery Date is required.'); return; }
     const { error: e1 } = await supabase.rpc('update_work_order', {
       p_work_order_id: wo.id,
       p: { delivery_date: deliveryDate || null, doc_ref: docRef.trim() || null, sales_person_id: salesPersonId || null, lines: changedLines },
@@ -496,6 +502,20 @@ function WorkOrderDetail() {
           </div>
         )}
       </section>
+
+      {salesFiles.length > 0 && (
+        <section className="rounded-lg border border-kraft-200 bg-white">
+          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">SALES ORDER FILE</div>
+          <ul className="flex flex-col gap-2 p-5">
+            {salesFiles.map((f) => (
+              <li key={f.id} className="flex items-center justify-between rounded-md border border-kraft-200 bg-kraft-50 px-3 py-2 text-sm">
+                <span>{f.file_name} <span className="text-xs text-ink-500">· {users[f.uploaded_by ?? '']?.email ?? ''} · {new Date(f.uploaded_at).toLocaleString('en-IN')}</span></span>
+                <button onClick={async () => { const err = await openSalesFile(f.storage_key); if (err) setError(err); }} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50">Open</button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {dateChanges.length > 0 && (
         <section className="rounded-lg border border-kraft-200 bg-white">

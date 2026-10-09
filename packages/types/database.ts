@@ -250,6 +250,7 @@ export interface Attachment {
   content_type: string | null;
   uploaded_by: string | null;
   uploaded_at: string;
+  kind: 'qc' | 'sales_order'; // 021: sales order files are visible only to Creator, MD, Admin and Finance
 }
 
 export interface Invoice {

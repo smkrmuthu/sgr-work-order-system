@@ -77,6 +77,9 @@ files **in order**, pasting each one's full contents and clicking Run:
     production entry; every change to the Planned Completion Date is logged
     with a required reason (enforced in the database). Add at least one
     supervisor before the Planner records production
+19. `db/migrations/021_sales_order_file_and_delivery_date.sql` — Sales Order
+    file upload (PDF/JPG, private `sales-order-files` bucket, visible only to
+    Creator/MD/Admin/Finance) and Delivery Date required on every created order
 
 All of them are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.

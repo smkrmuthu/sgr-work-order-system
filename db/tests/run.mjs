@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -805,5 +805,58 @@ ok(/only the Planned Completion Date/.test(await expectErr(() => as(PLANNER, () 
    'a Planner cannot change GSM (or the Sales Person) directly: only the completion date');
 const cpExport2 = (await as(MD, () => db.query(`select app.export_table('supervisors') as rows`))).rows[0].rows;
 ok(Array.isArray(cpExport2) && cpExport2.length >= 3, 'the backup export includes supervisors');
+
+
+// ---------------------------------------------------------------- Sales order files + compulsory Delivery Date (021)
+const sfBucket = (await db.query(`select public, file_size_limit, allowed_mime_types from storage.buckets where id='sales-order-files'`)).rows[0];
+ok(sfBucket && sfBucket.public === false && Number(sfBucket.file_size_limit) === 10485760 && sfBucket.allowed_mime_types.length === 2
+   && sfBucket.allowed_mime_types.includes('application/pdf') && sfBucket.allowed_mime_types.includes('image/jpeg'),
+   'sales-order-files bucket: private, 10 MB, PDF and JPEG only: ' + JSON.stringify(sfBucket));
+
+const sfOrder = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-09-01', lines: [{ part_id: p1.id, qty: 2 }] })]))).rows[0].id;
+const sfAttach = (who, wo, kind = 'sales_order', key = 'so.pdf') => as(who, () => db.query(
+  `insert into app.attachments (work_order_id, file_name, storage_key, content_type, uploaded_by, kind) values ($1, 'so.pdf', $2, 'application/pdf', $3, $4)`,
+  [wo, `${wo}/${key}`, who, kind]));
+await as(CREATOR, () => db.query(`insert into storage.objects (bucket_id, name) values ('sales-order-files', $1)`, [`${sfOrder}/so.pdf`]));
+await sfAttach(CREATOR, sfOrder);
+ok((await as(CREATOR, () => db.query(`select 1 from app.attachments where work_order_id=$1 and kind='sales_order'`, [sfOrder]))).rows.length === 1, 'the Creator uploads a sales order file to their own draft and sees it');
+
+ok(/row-level security/.test(await expectErr(() => as(OTHER_CREATOR, () => db.query(`insert into storage.objects (bucket_id, name) values ('sales-order-files', $1)`, [`${sfOrder}/x.pdf`]))) || ''),
+   "another Creator cannot upload into someone else's order");
+ok(/row-level security/.test(await expectErr(() => sfAttach(OTHER_CREATOR, sfOrder, 'sales_order', 'y.pdf')) || ''), "nor add an attachment row to it");
+ok(/row-level security/.test(await expectErr(() => as(PLANNER, () => db.query(`insert into storage.objects (bucket_id, name) values ('sales-order-files', $1)`, [`${sfOrder}/p.pdf`]))) || ''), 'a Planner cannot upload a sales order file');
+ok(/row-level security/.test(await expectErr(() => sfAttach(PLANNER, sfOrder, 'sales_order', 'p.pdf')) || ''), 'a Planner cannot add a sales order row either');
+
+for (const [name, who] of [['Planner', PLANNER], ['QC', QC]]) {
+  const rows = (await as(who, () => db.query(`select 1 from app.attachments where kind='sales_order'`))).rows.length;
+  const files = (await as(who, () => db.query(`select 1 from storage.objects where bucket_id='sales-order-files'`))).rows.length;
+  ok(rows === 0 && files === 0, name + ' sees no sales order rows or files (' + rows + ' / ' + files + ')');
+}
+for (const [name, who] of [['Finance', FINANCE], ['MD', MD], ['Admin', ADMIN]]) {
+  const files = (await as(who, () => db.query(`select 1 from storage.objects where bucket_id='sales-order-files'`))).rows.length;
+  ok(files === 1, name + ' can read the sales order file');
+}
+const qcStillVisible = (await as(PLANNER, () => db.query(`select 1 from app.attachments where kind='qc'`))).rows.length;
+ok(qcStillVisible >= 1, 'QC attachment rows are still visible to everyone, as before: ' + qcStillVisible);
+
+const sfDel = await as(CREATOR, () => db.query(`delete from app.attachments where work_order_id=$1 and kind='sales_order' returning id`, [sfOrder]));
+ok(sfDel.rows.length === 1, 'the Creator can remove a wrong upload while the order is still a draft');
+await sfAttach(CREATOR, sfOrder);
+await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [sfOrder]));
+await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [sfOrder]));
+ok(/row-level security/.test(await expectErr(() => sfAttach(CREATOR, sfOrder, 'sales_order', 'late.pdf')) || ''), 'after Finance approves, the Creator can no longer add files');
+const lateDel = await as(CREATOR, () => db.query(`delete from app.attachments where work_order_id=$1 and kind='sales_order' returning id`, [sfOrder]));
+ok(lateDel.rows.length === 0, 'nor remove them');
+await sfAttach(MD, sfOrder, 'sales_order', 'md.pdf');
+ok((await as(MD, () => db.query(`select 1 from app.attachments where work_order_id=$1 and kind='sales_order'`, [sfOrder]))).rows.length === 2, 'the MD still can');
+const shapeErr = await expectErr(() => db.query(`insert into app.attachments (qc_inspection_id, work_order_id, file_name, storage_key, kind) select i.id, l.work_order_id, 'z', 'z', 'sales_order' from app.qc_inspections i join app.work_order_lines l on l.id = i.work_order_line_id limit 1`));
+ok(/sales_order_shape/.test(shapeErr || ''), 'a sales order row cannot be tied to a QC inspection: ' + shapeErr);
+
+// Delivery Date
+const noDate = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, lines: [{ part_id: p1.id, qty: 1 }] })]))).rows[0].id;
+ok(/Delivery Date/.test(await expectErr(() => as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [noDate]))) || ''), 'an order without a Delivery Date cannot be created');
+ok(/work_orders_delivery_date_required/.test(await expectErr(() => as(MD, () => db.query(`select app.update_work_order($1, $2)`, [sfOrder, JSON.stringify({ delivery_date: '' })]))) || ''), 'the MD cannot clear the Delivery Date of a created order');
 
 console.log('\nDone.');

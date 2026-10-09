@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { lineLengthM, fmtMeters, partLengthMm } from '@/lib/partLength';
-import type { BusinessPartner, DeliveryLocation, Part, Category, SalesPerson, WorkOrder } from '@sgr/types';
+import { SALES_ACCEPT, checkSalesFile, uploadSalesFile, removeSalesFile, openSalesFile } from '@/lib/salesOrderFiles';
+import type { BusinessPartner, DeliveryLocation, Part, Category, SalesPerson, WorkOrder, Attachment } from '@sgr/types';
 
 interface LineRow {
   key: string;
@@ -43,6 +44,10 @@ function WorkOrderForm() {
   const [categories, setCategories] = useState<Category[]>([]);
 
   const [draftId, setDraftId] = useState<string | null>(null);
+  // Sales order files: chosen ones wait here until the order is saved (they need its id), then they are uploaded
+  // and show up in savedSalesFiles, read back from the database.
+  const [salesFiles, setSalesFiles] = useState<File[]>([]);
+  const [savedSalesFiles, setSavedSalesFiles] = useState<Attachment[]>([]);
   const [partnerId, setPartnerId] = useState('');
   const [locationId, setLocationId] = useState('');
   // Local calendar date (toISOString is UTC and can be a day off near midnight).
@@ -218,6 +223,44 @@ function WorkOrderForm() {
     })),
   });
 
+  async function loadSalesFiles(woId: string) {
+    const { data } = await supabase.from('attachments').select('*').eq('work_order_id', woId).eq('kind', 'sales_order').order('uploaded_at');
+    setSavedSalesFiles(data ?? []);
+  }
+  useEffect(() => { if (draftId) loadSalesFiles(draftId); }, [draftId]);
+
+  function pickSalesFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? []);
+    e.target.value = '';   // so choosing the same file again still fires
+    for (const f of picked) {
+      const bad = checkSalesFile(f);
+      if (bad) { setError(bad); return; }
+    }
+    setError('');
+    setSalesFiles((cur) => [...cur, ...picked.filter((f) => !cur.some((c) => c.name === f.name && c.size === f.size))]);
+  }
+
+  async function removeSavedSalesFile(a: Attachment) {
+    setError('');
+    const err = await removeSalesFile(a);
+    if (err) { setError(err); return; }
+    setSavedSalesFiles((cur) => cur.filter((x) => x.id !== a.id));
+  }
+
+  // Uploads whatever was chosen. Returns false (and says why) if any file did not go up; those stay chosen.
+  async function uploadChosenSalesFiles(woId: string): Promise<boolean> {
+    const failures: string[] = [];
+    const stillWaiting: File[] = [];
+    for (const f of salesFiles) {
+      const err = await uploadSalesFile(f, { workOrderId: woId, uploadedBy: profile?.id ?? null });
+      if (err) { failures.push(`${f.name}: ${err}`); stillWaiting.push(f); }
+    }
+    setSalesFiles(stillWaiting);
+    await loadSalesFiles(woId);
+    if (failures.length) { setError(`Saved, but the sales order file could not be uploaded — ${failures.join('; ')}`); return false; }
+    return true;
+  }
+
   async function saveDraft(): Promise<string | null> {
     // Past dates aren't allowed, except an existing order's own unchanged dates when editing.
     if (woDate && woDate < today && woDate !== editing?.wo_date) { setError('WO Date cannot be in the past.'); return null; }
@@ -235,6 +278,7 @@ function WorkOrderForm() {
     setDraftId(data as string);
     setNotes(allNotes());
     setNoteInput('');
+    if (!(await uploadChosenSalesFiles(data as string))) return null;
     setMessage('Draft saved just now.');
     return data as string;
   }
@@ -258,6 +302,7 @@ function WorkOrderForm() {
 
   async function createWorkOrder() {
     if (!docRef.trim()) { setError('Document Reference is required.'); return; }
+    if (!deliveryDate) { setError('Delivery Date is required.'); return; }
     if (gsmRequired && !(Number(gsmInner) > 0 && Number(gsmOuter) > 0)) { setError('GSM is required: enter both Inner and Outer (numbers above 0).'); return; }
     setCreating(true);
     setError('');
@@ -274,6 +319,7 @@ function WorkOrderForm() {
   // Editing an order that is already waiting for Finance: save, then go back to it (it stays pending).
   async function saveChanges() {
     if (!docRef.trim()) { setError('Document Reference is required.'); return; }
+    if (!deliveryDate) { setError('Delivery Date is required.'); return; }
     const id = await saveDraft();
     if (id) router.push(`/work-orders/detail?id=${id}`);
   }
@@ -484,6 +530,27 @@ function WorkOrderForm() {
                 />
                 <button type="button" onClick={addNote} disabled={!noteInput.trim()} className="btn-secondary whitespace-nowrap">+ Add note</button>
               </div>
+            </Field>
+            <Field label="Sales Order File (PDF or JPG)">
+              <ul className="mb-2 flex flex-col gap-1.5">
+                {savedSalesFiles.map((a) => (
+                  <li key={a.id} className="flex items-center gap-2 rounded-md border border-kraft-200 bg-kraft-50 px-2.5 py-1.5 text-[12.5px]">
+                    <span className="flex-1 break-all">{a.file_name} <span className="text-ink-500">· saved</span></span>
+                    <button type="button" onClick={async () => { const err = await openSalesFile(a.storage_key); if (err) setError(err); }} className="font-bold text-forest-800 hover:underline">Open</button>
+                    <button type="button" onClick={() => removeSavedSalesFile(a)} aria-label={`Remove ${a.file_name}`} className="text-ink-300 hover:text-rose-600">✕</button>
+                  </li>
+                ))}
+                {salesFiles.map((f, i) => (
+                  <li key={`${f.name}-${i}`} className="flex items-center gap-2 rounded-md border border-dashed border-kraft-300 bg-white px-2.5 py-1.5 text-[12.5px]">
+                    <span className="flex-1 break-all">{f.name} <span className="text-ink-500">· uploads when you save</span></span>
+                    <button type="button" onClick={() => setSalesFiles((cur) => cur.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`} className="text-ink-300 hover:text-rose-600">✕</button>
+                  </li>
+                ))}
+                {savedSalesFiles.length === 0 && salesFiles.length === 0 && <li className="text-xs text-ink-300">No file attached yet.</li>}
+              </ul>
+              <input type="file" accept={SALES_ACCEPT} multiple onChange={pickSalesFiles}
+                className="block w-full text-xs text-ink-700 file:mr-3 file:rounded-md file:border file:border-kraft-300 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-forest-800 hover:file:bg-kraft-50" />
+              <div className="mt-1 text-[10px] text-ink-300">PDF or JPG, up to 10 MB each. Stored with the order when you save; only Creator, MD, Admin and Finance can open it.</div>
             </Field>
           </div>
           <div className="flex flex-col gap-3">
