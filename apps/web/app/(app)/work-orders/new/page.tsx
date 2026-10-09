@@ -43,7 +43,12 @@ function WorkOrderForm() {
   const [draftId, setDraftId] = useState<string | null>(null);
   const [partnerId, setPartnerId] = useState('');
   const [locationId, setLocationId] = useState('');
-  const [woDate, setWoDate] = useState(() => new Date().toISOString().slice(0, 10));
+  // Local calendar date (toISOString is UTC and can be a day off near midnight).
+  const today = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, []);
+  const [woDate, setWoDate] = useState(today);
   const [deliveryDate, setDeliveryDate] = useState('');
   const [docRef, setDocRef] = useState('');
   const [testCert, setTestCert] = useState(false);
@@ -159,6 +164,10 @@ function WorkOrderForm() {
   });
 
   async function saveDraft(): Promise<string | null> {
+    // Past dates aren't allowed, except an existing order's own unchanged dates when editing.
+    if (woDate && woDate < today && woDate !== editing?.wo_date) { setError('WO Date cannot be in the past.'); return null; }
+    if (deliveryDate && deliveryDate < today && deliveryDate !== editing?.delivery_date) { setError('Delivery Date cannot be in the past.'); return null; }
+    if (deliveryDate && woDate && deliveryDate < woDate) { setError('Delivery Date cannot be before the WO Date.'); return null; }
     setSaving(true);
     setError('');
     const { data, error } = await supabase.rpc('save_draft', { p_id: draftId, p: payload() });
@@ -240,7 +249,7 @@ function WorkOrderForm() {
         </div>
         <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-3">
           <Field label="WO Date">
-            <input type="date" value={woDate} onChange={(e) => setWoDate(e.target.value)} className="input" />
+            <input type="date" min={editing?.wo_date && editing.wo_date < today ? editing.wo_date : today} value={woDate} onChange={(e) => setWoDate(e.target.value)} className="input" />
           </Field>
           <Field label="Document Reference">
             <input value={docRef} onChange={(e) => setDocRef(e.target.value)} placeholder="Optional" className="input" />
@@ -259,7 +268,7 @@ function WorkOrderForm() {
             </select>
           </Field>
           <Field label="Delivery Date *">
-            <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="input" />
+            <input type="date" min={woDate && woDate > today ? woDate : today} value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="input" />
           </Field>
         </div>
       </section>
