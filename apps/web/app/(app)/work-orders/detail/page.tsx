@@ -10,7 +10,7 @@ import { openQcFile } from '@/lib/qcFiles';
 import { STATUS_LABEL, STATUS_ORDER, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type {
   WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
-  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment, StatusHistoryEntry, SalesPerson, WorkOrderLinePrice,
+  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment, StatusHistoryEntry, SalesPerson, WorkOrderLinePrice, CompletionDateChange,
 } from '@sgr/types';
 
 interface LineWithProgress extends WorkOrderLine {
@@ -50,6 +50,7 @@ function WorkOrderDetail() {
   const [revisions, setRevisions] = useState<WorkOrderRevision[]>([]);
   const [financeApprovals, setFinanceApprovals] = useState<FinanceApproval[]>([]);
   const [notes, setNotes] = useState<WorkOrderNote[]>([]);
+  const [dateChanges, setDateChanges] = useState<CompletionDateChange[]>([]);
   const [qcFiles, setQcFiles] = useState<Attachment[]>([]);
   const [history, setHistory] = useState<StatusHistoryEntry[]>([]);
   const [fileError, setFileError] = useState('');
@@ -102,6 +103,8 @@ function WorkOrderDetail() {
     setRevisions(revs ?? []);
     setFinanceApprovals(fApprovals ?? []);
     setNotes(noteRows ?? []);
+    const { data: dcRows } = await supabase.from('completion_date_changes').select('*').eq('work_order_id', id).order('changed_at', { ascending: false });
+    setDateChanges(dcRows ?? []);
     setQcFiles(fileRows ?? []);
     setHistory(historyRows ?? []);
     setUsers(Object.fromEntries((allUsers ?? []).map((u) => [u.id, u])));
@@ -285,7 +288,7 @@ function WorkOrderDetail() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Info label="WO Date" value={wo.wo_date} />
               <Info label="Delivery Date" value={wo.delivery_date ?? '—'} />
-              <Info label="Expected Completion" value={wo.expected_completion_date ?? '—'} hint="Planner sets this" />
+              <Info label="Planned Completion" value={wo.expected_completion_date ?? '—'} hint="Planner sets this" />
               <Info label="Document Ref" value={wo.doc_ref ?? '—'} />
               <Info label="Sales Person" value={salesPerson ? `${salesPerson.name}${salesPerson.phone ? ` · ${salesPerson.phone}` : ''}` : '—'} />
             </div>
@@ -301,7 +304,7 @@ function WorkOrderDetail() {
                   ))}
                 </select>
               </Field>
-              <Info label="Expected Completion" value={wo.expected_completion_date ?? '—'} hint="Planner sets this" />
+              <Info label="Planned Completion" value={wo.expected_completion_date ?? '—'} hint="Planner sets this" />
               <Info label="Vendor / Location" value={`${partner?.code ?? ''} · ${location?.label ?? ''}`} hint="Fixed after creation" />
             </div>
           )}
@@ -493,6 +496,21 @@ function WorkOrderDetail() {
           </div>
         )}
       </section>
+
+      {dateChanges.length > 0 && (
+        <section className="rounded-lg border border-kraft-200 bg-white">
+          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">PLANNED COMPLETION DATE HISTORY</div>
+          <ul className="flex flex-col gap-1.5 p-5 text-[13px]">
+            {dateChanges.map((c) => (
+              <li key={c.id}>
+                <span className="font-mono font-bold">{c.from_date ?? 'not set'} → {c.to_date}</span>
+                {c.reason ? <> · {c.reason}</> : <span className="text-ink-500"> · first date set</span>}
+                <span className="text-ink-500"> · {users[c.changed_by ?? '']?.full_name ?? 'Unknown'}, {new Date(c.changed_at).toLocaleString('en-IN')}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {notes.length > 0 && (
         <section className="rounded-lg border border-kraft-200 bg-white">

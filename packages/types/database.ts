@@ -44,6 +44,13 @@ export interface SalesPerson {
   is_active: boolean;
 }
 
+export interface Supervisor {
+  id: string;
+  name: string;
+  phone: string | null;
+  is_active: boolean;
+}
+
 export interface Shift {
   id: string;
   code: string;
@@ -202,6 +209,7 @@ export interface ProductionEntry {
   production_date: string;
   shift_id: string | null;
   labour_count: number | null;
+  supervisor_id: string | null; // 020; older entries have none
   planner_id: string | null;
   created_at: string;
 }
@@ -336,6 +344,7 @@ export interface RecordProductionPayload {
   work_order_id: string;
   production_date?: string;
   shift_id: string;
+  supervisor_id: string;
   labour_count: number;
   lines: RecordProductionLine[];
 }

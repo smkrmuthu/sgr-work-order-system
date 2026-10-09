@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import type { Category, Part, SalesPerson } from '@sgr/types';
+import type { Category, Part, SalesPerson, Supervisor } from '@sgr/types';
 
 // Master Creator / MD / Admin (see NAV in the layout). The database enforces the same rule: the
 // master-data tables are writable only by those roles (db/migrations/002_rls.sql).
@@ -19,7 +19,7 @@ const EMPTY_PART: PartForm = {
 };
 
 export default function ItemMasterPage() {
-  const [tab, setTab] = useState<'items' | 'categories' | 'sales'>('items');
+  const [tab, setTab] = useState<'items' | 'categories' | 'sales' | 'supervisors'>('items');
   const [parts, setParts] = useState<Part[] | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState('');
@@ -38,15 +38,22 @@ export default function ItemMasterPage() {
   const [spPhone, setSpPhone] = useState('');
   const [spLocation, setSpLocation] = useState('');
 
+  const [supervisors, setSupervisors] = useState<Supervisor[]>([]);
+  const [svName, setSvName] = useState('');
+  const [svPhone, setSvPhone] = useState('');
+
   const load = useCallback(async () => {
-    const [p, c, sp] = await Promise.all([
+    const [p, c, sp, sv] = await Promise.all([
       supabase.from('parts').select('*').order('part_no'),
       supabase.from('categories').select('*').order('code'),
       supabase.from('sales_persons').select('*').order('name'),
+      supabase.from('supervisors').select('*').order('name'),
     ]);
     if (p.error) { setError(p.error.message); return; }
     if (c.error) { setError(c.error.message); return; }
     if (sp.error) { setError(sp.error.message); return; }
+    if (sv.error) { setError(sv.error.message); return; }
+    setSupervisors(sv.data ?? []);
     setSalesPersons(sp.data ?? []);
     setParts(p.data ?? []);
     setCategories(c.data ?? []);
@@ -88,7 +95,7 @@ export default function ItemMasterPage() {
     load();
   }
 
-  async function toggleActive(table: 'parts' | 'categories' | 'sales_persons', id: string, is_active: boolean) {
+  async function toggleActive(table: 'parts' | 'categories' | 'sales_persons' | 'supervisors', id: string, is_active: boolean) {
     setError('');
     const { error } = await supabase.from(table).update({ is_active: !is_active }).eq('id', id);
     if (error) { setError(error.message); return; }
@@ -117,6 +124,15 @@ export default function ItemMasterPage() {
     load();
   }
 
+  async function addSupervisor() {
+    if (!svName.trim()) { setError('Supervisor name is required.'); return; }
+    setError('');
+    const { error } = await supabase.from('supervisors').insert({ name: svName.trim(), phone: svPhone.trim() || null });
+    if (error) { setError(error.message); return; }
+    setSvName(''); setSvPhone('');
+    load();
+  }
+
   const shown = (parts ?? []).filter((p) => {
     if (!q.trim()) return true;
     const s = q.toLowerCase();
@@ -139,10 +155,10 @@ export default function ItemMasterPage() {
       </div>
 
       <div className="flex gap-1 border-b border-kraft-200">
-        {(['items', 'categories', 'sales'] as const).map((t) => (
+        {(['items', 'categories', 'sales', 'supervisors'] as const).map((t) => (
           <button key={t} onClick={() => { setTab(t); setError(''); }}
             className={`border-b-2 px-3 py-2 text-xs font-bold uppercase tracking-wide ${tab === t ? 'border-forest-600 text-forest-900' : 'border-transparent text-ink-500'}`}>
-            {t === 'items' ? `Items (${parts?.length ?? 0})` : t === 'categories' ? `Categories (${categories.length})` : `Sales Persons (${salesPersons.length})`}
+            {t === 'items' ? `Items (${parts?.length ?? 0})` : t === 'categories' ? `Categories (${categories.length})` : t === 'sales' ? `Sales Persons (${salesPersons.length})` : `Supervisors (${supervisors.length})`}
           </button>
         ))}
       </div>
@@ -266,6 +282,37 @@ export default function ItemMasterPage() {
                     <td className="px-3 py-2">{s.phone ?? '—'}</td>
                     <td className="px-3 py-2">{s.location ?? '—'}</td>
                     <td className="px-3 py-2 text-center"><input type="checkbox" checked={s.is_active} onChange={() => toggleActive('sales_persons', s.id, s.is_active)} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {tab === 'supervisors' && (
+        <>
+          <section className="rounded-lg border border-kraft-200 bg-white p-5">
+            <div className="mb-3 text-sm font-bold text-forest-900">NEW SUPERVISOR</div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Name"><input value={svName} onChange={(e) => setSvName(e.target.value)} className="input" /></Field>
+              <Field label="Phone"><input value={svPhone} onChange={(e) => setSvPhone(e.target.value)} className="input" /></Field>
+            </div>
+            <div className="mt-3 flex justify-end"><button onClick={addSupervisor} className="btn-primary">Add Supervisor</button></div>
+          </section>
+
+          <div className="overflow-hidden rounded-lg border border-kraft-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
+                <tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">Phone</th><th className="px-3 py-2 text-center">Active</th></tr>
+              </thead>
+              <tbody>
+                {supervisors.length === 0 && <tr><td colSpan={3} className="px-3 py-8 text-center text-ink-500">No supervisors yet. Production entries need one, so add them here first.</td></tr>}
+                {supervisors.map((s) => (
+                  <tr key={s.id} className={`border-t border-kraft-100 ${s.is_active ? '' : 'opacity-50'}`}>
+                    <td className="px-3 py-2 font-bold">{s.name}</td>
+                    <td className="px-3 py-2">{s.phone ?? '—'}</td>
+                    <td className="px-3 py-2 text-center"><input type="checkbox" checked={s.is_active} onChange={() => toggleActive('supervisors', s.id, s.is_active)} /></td>
                   </tr>
                 ))}
               </tbody>

@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -68,6 +68,8 @@ const as = async (userId, fn) => {
   await db.exec(`set role authenticated; select set_config('request.jwt.claim.sub','${userId}',false)`);
   try { return await fn(); } finally { await db.exec('reset role'); }
 };
+// Every production entry needs a supervisor (020); this one is used by all the entries below.
+const SUPERVISOR = (await db.query(`insert into app.supervisors (name, phone) values ('Test Supervisor', '9000000000') returning id`)).rows[0].id;
 const asAnon = async (fn) => { await db.exec('set role anon'); try { return await fn(); } finally { await db.exec('reset role'); } };
 
 // ---------------------------------------------------------------- master data + RLS on it
@@ -150,7 +152,7 @@ const preApprovalLine = (await as(CREATOR, () => db.query(`select id from app.wo
 let blockedBeforeApproval = null;
 try {
   await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-    work_order_id: draftId, shift_id: shiftMorningIdEarly, labour_count: 5,
+    work_order_id: draftId, shift_id: shiftMorningIdEarly, supervisor_id: SUPERVISOR, labour_count: 5,
     lines: [{ work_order_line_id: preApprovalLine.id, qty: 10 }]
   })]));
 } catch (e) { blockedBeforeApproval = e.message; }
@@ -203,7 +205,7 @@ ok(creatorEditResult.affectedRows === 0 && stillTest001 === 'TEST-001',
 const lineIds = (await as(CREATOR, () => db.query(`select id, qty, final_price from app.work_order_lines where work_order_id=$1 order by line_no`, [draftId]))).rows;
 let plannerPriceEdit = null;
 try { await as(PLANNER, () => db.query(`update app.work_orders set doc_ref='HACK2' where id=$1`, [draftId])); } catch (e) { plannerPriceEdit = e.message; }
-ok(/Expected Completion Date/.test(plannerPriceEdit || ''), 'Planner touching any other field is rejected loudly, not silently discarded: ' + plannerPriceEdit);
+ok(/Planned Completion Date/.test(plannerPriceEdit || ''), 'Planner touching any other field is rejected loudly, not silently discarded: ' + plannerPriceEdit);
 
 await as(PLANNER, () => db.query(`update app.work_orders set expected_completion_date='2026-10-15' where id=$1`, [draftId]));
 const afterPlannerEdit = (await as(CREATOR, () => db.query(`select doc_ref, expected_completion_date from app.work_orders where id=$1`, [draftId]))).rows[0];
@@ -230,14 +232,14 @@ const shiftMorningId = (await db.query(`select id from app.shifts where code='1'
 let overProd = null;
 try {
   await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-    work_order_id: draftId, shift_id: shiftMorningId, labour_count: 5,
+    work_order_id: draftId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 5,
     lines: [{ work_order_line_id: lineIds[0].id, qty: 5000, actual_weight_kg: 1 }]
   })]));
 } catch (e) { overProd = e.message; }
 ok(!!overProd, 'over-production is blocked outright: ' + overProd);
 
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-  work_order_id: draftId, shift_id: shiftMorningId, labour_count: 6,
+  work_order_id: draftId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 6,
   lines: [{ work_order_line_id: lineIds[0].id, qty: 600, actual_weight_kg: 150 }, { work_order_line_id: lineIds[1].id, qty: 200, actual_weight_kg: 20 }]
 })]));
 let statusAfterProd = (await as(CREATOR, () => db.query(`select status from app.work_orders where id=$1`, [draftId]))).rows[0].status;
@@ -296,7 +298,7 @@ let billBeforeQc = null;
 try { await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'inter')`, [created2.id])); } catch (e) { billBeforeQc = e.message; }
 ok(/Nothing is ready to bill/.test(billBeforeQc || ''), 'an order with no QC-approved goods cannot be billed: ' + billBeforeQc);
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-  work_order_id: created2.id, shift_id: shiftMorningId, labour_count: 4, lines: [{ work_order_line_id: c2Line, qty: 500, actual_weight_kg: 10 }] })]));
+  work_order_id: created2.id, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 4, lines: [{ work_order_line_id: c2Line, qty: 500, actual_weight_kg: 10 }] })]));
 await as(PLANNER, () => db.query(`select app.send_line_to_qc($1)`, [c2Line]));
 await as(QC, () => db.query(`select app.record_qc_inspection($1, 500, 'all good')`, [c2Line]));
 const inv2Id = (await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'inter') as id`, [created2.id]))).rows[0].id;
@@ -484,7 +486,7 @@ ok(/Nothing is ready to bill/.test(doubleBill || ''), 'the same goods cannot be 
 
 // draftId line 1: 600 approved and billed above; produce + approve 400 more -> only those 400 are billable
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-  work_order_id: draftId, shift_id: shiftMorningId, labour_count: 4, lines: [{ work_order_line_id: lineIds[0].id, qty: 400, actual_weight_kg: 1 }] })]));
+  work_order_id: draftId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 4, lines: [{ work_order_line_id: lineIds[0].id, qty: 400, actual_weight_kg: 1 }] })]));
 await as(PLANNER, () => db.query(`select app.send_line_to_qc($1)`, [lineIds[0].id]));
 await as(QC, () => db.query(`select app.record_qc_inspection($1, 400, 'second batch')`, [lineIds[0].id]));
 const inv3Id = (await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra') as id`, [draftId]))).rows[0].id;
@@ -549,7 +551,7 @@ ok(noop === 2, 'saving with nothing changed opens no revision');
 
 // Never below what is produced.
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-  work_order_id: mdPendingId, shift_id: shiftMorningId, labour_count: 3, lines: [{ work_order_line_id: mdLine, qty: 100, actual_weight_kg: 1 }] })]));
+  work_order_id: mdPendingId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 3, lines: [{ work_order_line_id: mdLine, qty: 100, actual_weight_kg: 1 }] })]));
 let belowMade = null;
 try { await as(MD, () => db.query(`select app.update_work_order($1, $2)`, [mdPendingId, JSON.stringify({ lines: [{ id: mdLine, qty: 50 }] })])); } catch (e) { belowMade = e.message; }
 ok(/already produced or billed/.test(belowMade || ''), 'quantity cannot be cut below what is already produced: ' + belowMade);
@@ -603,7 +605,7 @@ await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [loc
 await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [lockCheckDraft]));
 const lockCheckLine = (await as(CREATOR, () => db.query(`select id from app.work_order_lines where work_order_id=$1`, [lockCheckDraft]))).rows[0].id;
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-  work_order_id: lockCheckDraft, shift_id: shiftMorningId, labour_count: 2, lines: [{ work_order_line_id: lockCheckLine, qty: 40 }] })]));
+  work_order_id: lockCheckDraft, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 2, lines: [{ work_order_line_id: lockCheckLine, qty: 40 }] })]));
 const sentAfterLock = (await as(PLANNER, () => db.query(`select app.send_line_to_qc($1) as q`, [lockCheckLine]))).rows[0].q;
 await as(QC, () => db.query(`select app.record_qc_inspection($1, 40, 'ok')`, [lockCheckLine]));
 ok(Number(sentAfterLock) === 40, 'record_production + send_line_to_qc + record_qc_inspection still work normally with the new locks: sent ' + sentAfterLock);
@@ -759,5 +761,49 @@ const g4row = (await db.query(`select gsm_required, gsm_inner, gsm_outer from ap
 ok(!g4.err && !g4row.gsm_required && g4row.gsm_inner === null && g4row.gsm_outer === null, 'GSM switched off: any figures are dropped: ' + JSON.stringify(g4row));
 const g5 = await gsmErr({ gsm_required: true, gsm_inner: 0, gsm_outer: 150 });
 ok(/gsm_inner/.test(g5.err || ''), 'GSM must be above zero: ' + g5.err);
+
+
+// ---------------------------------------------------------------- Supervisor + Planned Completion Date reason (020)
+const supNew = (await db.query(`insert into app.supervisors (name) values ('Other Supervisor') returning id`)).rows[0].id;
+const supOff = (await db.query(`insert into app.supervisors (name, is_active) values ('Retired Supervisor', false) returning id`)).rows[0].id;
+const sdOrder = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-07-01', lines: [{ part_id: p1.id, qty: 30 }] })]))).rows[0].id;
+await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [sdOrder]));
+await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [sdOrder]));
+const sdLine = (await db.query(`select id from app.work_order_lines where work_order_id=$1`, [sdOrder])).rows[0].id;
+const sdShift = (await db.query(`select id from app.shifts limit 1`)).rows[0].id;
+const prod = (sup) => as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
+  work_order_id: sdOrder, shift_id: sdShift, labour_count: 3, ...(sup === undefined ? {} : { supervisor_id: sup }),
+  lines: [{ work_order_line_id: sdLine, qty: 5 }] })]));
+const expectErr = async (fn) => { try { await fn(); return null; } catch (e) { return e.message; } };
+
+ok(/Choose the Supervisor/.test(await expectErr(() => prod()) || ''), 'a production entry without a Supervisor is refused');
+ok(/not available/.test(await expectErr(() => prod(supOff)) || ''), 'a deactivated Supervisor cannot be chosen');
+await prod(supNew);
+const sdEntry = (await db.query(`select supervisor_id from app.production_entries where work_order_id=$1`, [sdOrder])).rows[0];
+ok(sdEntry.supervisor_id === supNew, 'the Supervisor is stored on the production entry');
+ok(/row-level security/.test(await expectErr(() => as(PLANNER, () => db.query(`insert into app.supervisors (name) values ('x')`))) || ''), 'a Planner cannot edit the Supervisor master');
+ok((await as(PLANNER, () => db.query(`select 1 from app.supervisors`))).rows.length >= 2, 'a Planner can read the Supervisor list');
+
+const setDate = (who, d, reason) => as(who, () => db.query(`select app.set_completion_date($1, $2, $3)`, [sdOrder, d, reason ?? null]));
+await setDate(PLANNER, '2027-07-20');                      // first time: no reason needed
+ok(/reason/.test(await expectErr(() => setDate(PLANNER, '2027-07-25')) || ''), 'changing a set date without a reason is refused');
+ok(/reason/.test(await expectErr(() => setDate(PLANNER, '2027-07-25', '   ')) || ''), 'a blank reason does not count');
+await setDate(PLANNER, '2027-07-25', 'Machine breakdown');
+await setDate(PLANNER, '2027-07-25', 'ignored');           // same date: nothing changes, nothing logged
+const sdLog = (await as(QC, () => db.query(`select from_date, to_date, reason, changed_by from app.completion_date_changes where work_order_id=$1 order by changed_at, from_date nulls first`, [sdOrder]))).rows;
+ok(sdLog.length === 2 && sdLog[0].from_date === null && sdLog[1].reason === 'Machine breakdown' && sdLog[1].changed_by === PLANNER,
+   'both changes are logged with before/after, reason and who: ' + JSON.stringify(sdLog.map((r) => [r.from_date && r.from_date.toISOString().slice(0, 10), r.to_date.toISOString().slice(0, 10), r.reason])));
+ok(/reason/.test(await expectErr(() => as(PLANNER, () => db.query(`update app.work_orders set expected_completion_date='2027-08-01' where id=$1`, [sdOrder]))) || ''),
+   'calling the API directly cannot skip the reason either');
+ok(/cannot be cleared/.test(await expectErr(() => as(PLANNER, () => db.query(`update app.work_orders set expected_completion_date=null where id=$1`, [sdOrder]))) || ''), 'the date cannot be cleared');
+ok(/Only the Production Planner/.test(await expectErr(() => setDate(CREATOR, '2027-08-01', 'x')) || ''), 'a Creator cannot set the date');
+await setDate(MD, '2027-08-05', 'Customer asked for a later date');
+const sdLog2 = (await db.query(`select count(*)::int as n from app.completion_date_changes where work_order_id=$1`, [sdOrder])).rows[0].n;
+ok(sdLog2 === 3, 'the MD changing the date is logged too: ' + sdLog2 + ' entries');
+ok(/only the Planned Completion Date/.test(await expectErr(() => as(PLANNER, () => db.query(`update app.work_orders set gsm_required=true, gsm_inner=1, gsm_outer=1 where id=$1`, [sdOrder]))) || ''),
+   'a Planner cannot change GSM (or the Sales Person) directly: only the completion date');
+const cpExport2 = (await as(MD, () => db.query(`select app.export_table('supervisors') as rows`))).rows[0].rows;
+ok(Array.isArray(cpExport2) && cpExport2.length >= 3, 'the backup export includes supervisors');
 
 console.log('\nDone.');

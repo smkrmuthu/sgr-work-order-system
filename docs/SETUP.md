@@ -72,6 +72,11 @@ files **in order**, pasting each one's full contents and clicking Run:
 17. `db/migrations/019_gsm_requirement.sql` — GSM Required (with Inner and
     Outer figures) on the Work Order; Inspection Report Required and Pallet
     Height are retired from the form (old values stay in the database)
+18. `db/migrations/020_supervisors_and_completion_reason.sql` — Supervisors
+    master (Item Master → Supervisors) and a required Supervisor on every
+    production entry; every change to the Planned Completion Date is logged
+    with a required reason (enforced in the database). Add at least one
+    supervisor before the Planner records production
 
 All of them are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
