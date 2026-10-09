@@ -64,6 +64,8 @@ function WorkOrderDetail() {
   const [editing, setEditing] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState('');
   const [docRef, setDocRef] = useState('');
+  const [salesPersonId, setSalesPersonId] = useState('');
+  const [allSalesPersons, setAllSalesPersons] = useState<SalesPerson[]>([]);
   const [lineEdits, setLineEdits] = useState<Record<string, { qty: string; final_price: string }>>({});
   const [saving, setSaving] = useState(false);
 
@@ -87,9 +89,10 @@ function WorkOrderDetail() {
       supabase.from('attachments').select('*').eq('work_order_id', id).not('qc_inspection_id', 'is', null).order('uploaded_at'),
       supabase.from('status_history').select('*').eq('work_order_id', id).order('changed_at'),
       supabase.from('users').select('*'),
-      w.sales_person_id ? supabase.from('sales_persons').select('*').eq('id', w.sales_person_id).maybeSingle() : Promise.resolve({ data: null }),
+      supabase.from('sales_persons').select('*').order('name'),
     ]);
-    setSalesPerson(sp ?? null);
+    setAllSalesPersons(sp ?? []);
+    setSalesPerson((sp ?? []).find((x) => x.id === w.sales_person_id) ?? null);
     setPartner(p ?? null);
     setLocation(loc ?? null);
     setRevisions(revs ?? []);
@@ -137,11 +140,13 @@ function WorkOrderDetail() {
     if (!wo) return;
     setDeliveryDate(wo.delivery_date ?? '');
     setDocRef(wo.doc_ref ?? '');
+    setSalesPersonId(wo.sales_person_id ?? '');
     setEditing(true);
   }
 
   async function saveEdit() {
     if (!wo) return;
+    if (!docRef.trim()) { setError('Document Reference is required.'); return; }
     setSaving(true); setError('');
     // Only the lines that actually changed. One call does header + lines together, so a save is exactly one
     // revision (and none if nothing changed) — see app.update_work_order in db/migrations/011.
@@ -159,7 +164,7 @@ function WorkOrderDetail() {
     }
     const { error: e1 } = await supabase.rpc('update_work_order', {
       p_work_order_id: wo.id,
-      p: { delivery_date: deliveryDate || null, doc_ref: docRef || null, lines: changedLines },
+      p: { delivery_date: deliveryDate || null, doc_ref: docRef.trim() || null, sales_person_id: salesPersonId || null, lines: changedLines },
     });
     setSaving(false);
     if (e1) { setError(e1.message); return; }
@@ -260,7 +265,15 @@ function WorkOrderDetail() {
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Field label="Delivery Date"><input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="input" /></Field>
-              <Field label="Document Reference"><input value={docRef} onChange={(e) => setDocRef(e.target.value)} className="input" /></Field>
+              <Field label="Document Reference *"><input value={docRef} onChange={(e) => setDocRef(e.target.value)} className="input" /></Field>
+              <Field label="Sales Person">
+                <select value={salesPersonId} onChange={(e) => setSalesPersonId(e.target.value)} className="input">
+                  <option value="">Select sales person…</option>
+                  {allSalesPersons.filter((sp) => sp.is_active || sp.id === salesPersonId).map((sp) => (
+                    <option key={sp.id} value={sp.id}>{sp.name}{sp.location ? ` — ${sp.location}` : ''}</option>
+                  ))}
+                </select>
+              </Field>
               <Info label="Expected Completion" value={wo.expected_completion_date ?? '—'} hint="Planner sets this" />
               <Info label="Vendor / Location" value={`${partner?.code ?? ''} · ${location?.label ?? ''}`} hint="Fixed after creation" />
             </div>
