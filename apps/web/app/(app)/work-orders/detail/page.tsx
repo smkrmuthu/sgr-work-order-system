@@ -9,7 +9,7 @@ import { openQcFile } from '@/lib/qcFiles';
 import { STATUS_LABEL, STATUS_ORDER, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type {
   WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
-  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment, StatusHistoryEntry,
+  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment, StatusHistoryEntry, SalesPerson,
 } from '@sgr/types';
 
 interface LineWithProgress extends WorkOrderLine {
@@ -41,6 +41,7 @@ function WorkOrderDetail() {
   const [wo, setWo] = useState<WorkOrder | null>(null);
   const [partner, setPartner] = useState<BusinessPartner | null>(null);
   const [location, setLocation] = useState<DeliveryLocation | null>(null);
+  const [salesPerson, setSalesPerson] = useState<SalesPerson | null>(null);
   const [lines, setLines] = useState<LineWithProgress[]>([]);
   const [revisions, setRevisions] = useState<WorkOrderRevision[]>([]);
   const [financeApprovals, setFinanceApprovals] = useState<FinanceApproval[]>([]);
@@ -76,7 +77,7 @@ function WorkOrderDetail() {
     if (!w) { setError('Work order not found.'); return; }
     setWo(w);
 
-    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: fApprovals }, { data: noteRows }, { data: fileRows }, { data: historyRows }, { data: allUsers }] = await Promise.all([
+    const [{ data: p }, { data: loc }, { data: ls }, { data: revs }, { data: fApprovals }, { data: noteRows }, { data: fileRows }, { data: historyRows }, { data: allUsers }, { data: sp }] = await Promise.all([
       w.partner_id ? supabase.from('business_partners').select('*').eq('id', w.partner_id).maybeSingle() : Promise.resolve({ data: null }),
       w.delivery_location_id ? supabase.from('delivery_locations').select('*').eq('id', w.delivery_location_id).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('work_order_lines').select('*').eq('work_order_id', id).order('line_no'),
@@ -86,7 +87,9 @@ function WorkOrderDetail() {
       supabase.from('attachments').select('*').eq('work_order_id', id).not('qc_inspection_id', 'is', null).order('uploaded_at'),
       supabase.from('status_history').select('*').eq('work_order_id', id).order('changed_at'),
       supabase.from('users').select('*'),
+      w.sales_person_id ? supabase.from('sales_persons').select('*').eq('id', w.sales_person_id).maybeSingle() : Promise.resolve({ data: null }),
     ]);
+    setSalesPerson(sp ?? null);
     setPartner(p ?? null);
     setLocation(loc ?? null);
     setRevisions(revs ?? []);
@@ -252,6 +255,7 @@ function WorkOrderDetail() {
               <Info label="Delivery Date" value={wo.delivery_date ?? '—'} />
               <Info label="Expected Completion" value={wo.expected_completion_date ?? '—'} hint="Planner sets this" />
               <Info label="Document Ref" value={wo.doc_ref ?? '—'} />
+              <Info label="Sales Person" value={salesPerson ? `${salesPerson.name}${salesPerson.phone ? ` · ${salesPerson.phone}` : ''}` : '—'} />
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
