@@ -7,6 +7,9 @@ import { useAuth } from '@/lib/auth';
 import { STATUS_LABEL, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type { WorkOrder, BusinessPartner } from '@sgr/types';
 
+// Statuses an order only reaches after Finance (or the MD) has approved it.
+const APPROVED_STATUSES = ['created', 'in_production', 'qc_pending', 'partially_qc_approved', 'ready_for_dispatch', 'completed'];
+
 type Row = WorkOrder & { partner?: BusinessPartner | null; line_count: number; total_qty: number };
 
 export default function WorkOrdersPage() {
@@ -24,13 +27,15 @@ export default function WorkOrdersPage() {
     if (!profile) return;
     let cancelled = false;
     (async () => {
-      // Everyone sees every created order. A draft is private to whoever started it — including one
+      // Production (Planner) and QC only deal with orders Finance has approved: nothing that is still a draft
+      // or waiting for approval (or cancelled before it got anywhere) is listed for them.
+      // Everyone else sees every created order. A draft is private to whoever started it — including one
       // Finance sent back, which its Creator needs to reach in order to fix and resubmit.
-      const { data, error } = await supabase
-        .from('work_orders')
-        .select('*, partner:business_partners(*), work_order_lines(qty)')
-        .or(`status.neq.draft,created_by.eq.${profile.id}`)
-        .order('created_at', { ascending: false });
+      let query = supabase.from('work_orders').select('*, partner:business_partners(*), work_order_lines(qty)');
+      query = profile.role === 'planner' || profile.role === 'qc'
+        ? query.in('status', APPROVED_STATUSES)
+        : query.or(`status.neq.draft,created_by.eq.${profile.id}`);
+      const { data, error } = await query.order('created_at', { ascending: false });
       if (cancelled) return;
       if (error) { setError(error.message); return; }
       const mapped: Row[] = (data ?? []).map((w: any) => ({
@@ -65,7 +70,9 @@ export default function WorkOrdersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-forest-900">Work Orders</h1>
-          <p className="text-sm text-ink-500">Every Work Order that has been created. Your own drafts (including any Finance sent back) show here too, only to you.</p>
+          <p className="text-sm text-ink-500">{profile?.role === 'planner' || profile?.role === 'qc'
+              ? 'Every approved Work Order.'
+              : 'Every Work Order that has been created. Your own drafts (including any Finance sent back) show here too, only to you.'}</p>
         </div>
         {/* Matches work_orders_insert's actual RLS policy (creator, md) — admin isn't listed there, so
             showing this to admin used to fail on the first Save Draft with a raw RLS error. */}
@@ -76,7 +83,7 @@ export default function WorkOrdersPage() {
         )}
       </div>
 
-      {hasUnsaved && (
+      {hasUnsaved && (profile?.role === 'creator' || profile?.role === 'md') && (
         <div className="flex items-center justify-between rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
           <span>You have a new Work Order in progress that hasn&apos;t been created yet.</span>
           <span className="flex gap-2">
