@@ -468,6 +468,22 @@ function WorkOrderDetail() {
         </section>
       )}
 
+      <section className="rounded-lg border border-kraft-200 bg-white">
+        <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">REQUIREMENTS</div>
+        <div className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
+          <Info label="Test Certificate" value={wo.test_cert_required ? 'Required' : 'Not required'} />
+          <Info label="GSM" value={wo.gsm_required ? `Inner ${wo.gsm_inner ?? '—'} · Outer ${wo.gsm_outer ?? '—'}` : 'Not required'} />
+          <Info label="Packing List" value={wo.packing_required ? `Required${wo.units_per_bundle ? ` · ${wo.units_per_bundle} per bundle` : ''}` : 'Not required'} />
+          <Info label="Separate Vehicle" value={wo.separate_vehicle_required ? 'Required' : 'Not required'} />
+        </div>
+        {wo.transport_notes && (
+          <div className="border-t border-kraft-100 px-5 py-3">
+            <div className="text-[11px] font-semibold text-ink-500">Special Instructions</div>
+            <div className="whitespace-pre-wrap text-[13px]">{wo.transport_notes}</div>
+          </div>
+        )}
+      </section>
+
       {notes.length > 0 && (
         <section className="rounded-lg border border-kraft-200 bg-white">
           <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">NOTES</div>
