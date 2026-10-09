@@ -238,12 +238,22 @@ function WorkOrderDetail() {
   const unbilledUnits = lines.reduce((n, l) => n + Math.max(0, l.qcApproved - (billedByLine.get(l.id) ?? 0)), 0);
 
   const statusIdx = STATUS_ORDER.indexOf(wo.status as any);
-  const orderedTotal = lines.reduce((n, l) => n + l.qty, 0);
+  // While the MD is editing, line values and totals follow what is typed in the boxes (not only what was last saved).
+  const live = (l: LineWithProgress) => {
+    const e = editing && isMd ? lineEdits[l.id] : undefined;
+    const num = (v: string | undefined, fallback: number) => (v != null && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : fallback);
+    return {
+      qty: num(e?.qty, l.qty),
+      finalPrice: num(e?.final_price, l.final_price),
+      customerPrice: e ? (e.customer_price.trim() === '' ? null : num(e.customer_price, l.customer_price ?? 0)) : l.customer_price,
+    };
+  };
+  const orderedTotal = lines.reduce((n, l) => n + live(l).qty, 0);
   const producedTotal = lines.reduce((n, l) => n + l.produced, 0);
   const qcTotal = lines.reduce((n, l) => n + l.qcApproved, 0);
-  const finalValue = lines.reduce((n, l) => n + l.qty * l.final_price, 0);
-  const totalLengthM = lines.reduce((n, l) => n + lineLengthM(l.description_snapshot, l.qty), 0);
-  const customerValue = lines.reduce((n, l) => n + l.qty * (l.customer_price ?? 0), 0);
+  const finalValue = lines.reduce((n, l) => n + live(l).qty * live(l).finalPrice, 0);
+  const totalLengthM = lines.reduce((n, l) => n + lineLengthM(l.description_snapshot, live(l).qty), 0);
+  const customerValue = lines.reduce((n, l) => n + live(l).qty * (live(l).customerPrice ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-4">
@@ -414,14 +424,14 @@ function WorkOrderDetail() {
                       <input value={lineEdits[l.id]?.final_price ?? ''} onChange={(e) => setLineEdits((s) => ({ ...s, [l.id]: { ...s[l.id]!, final_price: e.target.value } }))} className="input w-24 !py-1" />
                     ) : `₹${l.final_price.toFixed(2)}`}
                   </td>
-                  <td className="px-2 py-2 font-mono font-bold">₹{(l.qty * l.final_price).toLocaleString('en-IN')}</td>
-                  <td className="px-2 py-2 font-mono">{partLengthMm(l.description_snapshot) != null ? fmtMeters(lineLengthM(l.description_snapshot, l.qty)) : '—'}</td>
+                  <td className="px-2 py-2 font-mono font-bold">₹{(live(l).qty * live(l).finalPrice).toLocaleString('en-IN')}</td>
+                  <td className="px-2 py-2 font-mono">{partLengthMm(l.description_snapshot) != null ? fmtMeters(lineLengthM(l.description_snapshot, live(l).qty)) : '—'}</td>
                   {canSeeCustomerPrice && <><td className="px-2 py-2 font-mono">
                     {editing && isMd ? (
                       <input type="number" min={0} step="any" value={lineEdits[l.id]?.customer_price ?? ''} onChange={(e) => setLineEdits((s) => ({ ...s, [l.id]: { ...s[l.id]!, customer_price: e.target.value } }))} className="input w-24 !py-1" />
                     ) : l.customer_price != null ? `₹${l.customer_price.toFixed(2)}` : '—'}
                   </td>
-                  <td className="px-2 py-2 font-mono font-bold">{l.customer_price != null ? `₹${(l.qty * l.customer_price).toLocaleString('en-IN')}` : '—'}</td></>}
+                  <td className="px-2 py-2 font-mono font-bold">{live(l).customerPrice != null ? `₹${(live(l).qty * live(l).customerPrice!).toLocaleString('en-IN')}` : '—'}</td></>}
                 </tr>
               ))}
             </tbody>
