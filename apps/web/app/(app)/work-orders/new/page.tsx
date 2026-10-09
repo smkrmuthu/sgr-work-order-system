@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+import { lineLengthM, fmtMeters, partLengthMm } from '@/lib/partLength';
 import type { BusinessPartner, DeliveryLocation, Part, Category, SalesPerson, WorkOrder } from '@sgr/types';
 
 interface LineRow {
@@ -12,6 +13,7 @@ interface LineRow {
   qty: number;
   remarks: string;
   customerRef: string;
+  customerPrice: string;
 }
 
 // One form for both jobs: /work-orders/new starts a blank Work Order; /work-orders/new?id=<uuid> edits
@@ -69,6 +71,7 @@ function WorkOrderForm() {
   const [newQty, setNewQty] = useState('');
   const [newRemarks, setNewRemarks] = useState('');
   const [newCustomerRef, setNewCustomerRef] = useState('');
+  const [newCustomerPrice, setNewCustomerPrice] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -112,9 +115,9 @@ function WorkOrderForm() {
       setSeparateVehicle(!!s.separateVehicle); setTransportNotes(s.transportNotes ?? '');
       setNotes(s.notes ?? []); setNoteInput(s.noteInput ?? '');
       const partById = new Map(allPartsRef.current.map((p) => [p.id, p]));
-      setLines((s.lines ?? []).flatMap((l: { key: string; partId: string; qty: number; remarks: string; customerRef: string }) => {
+      setLines((s.lines ?? []).flatMap((l: { key: string; partId: string; qty: number; remarks: string; customerRef: string; customerPrice?: string }) => {
         const part = partById.get(l.partId);
-        return part ? [{ key: l.key, part, qty: l.qty, remarks: l.remarks, customerRef: l.customerRef }] : [];
+        return part ? [{ key: l.key, part, qty: l.qty, remarks: l.remarks, customerRef: l.customerRef, customerPrice: l.customerPrice ?? '' }] : [];
       }));
     } catch { /* storage unavailable or corrupt — start blank */ }
   }, [editId, refReady, today]);
@@ -125,7 +128,7 @@ function WorkOrderForm() {
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
         draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, testCert, inspectionReport,
         packingRequired, bundleQty, palletHeight, separateVehicle, transportNotes, notes, noteInput,
-        lines: lines.map((l) => ({ key: l.key, partId: l.part.id, qty: l.qty, remarks: l.remarks, customerRef: l.customerRef })),
+        lines: lines.map((l) => ({ key: l.key, partId: l.part.id, qty: l.qty, remarks: l.remarks, customerRef: l.customerRef, customerPrice: l.customerPrice })),
       }));
     } catch { /* ignore */ }
   }, [editId, draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, testCert, inspectionReport,
@@ -166,7 +169,7 @@ function WorkOrderForm() {
       const partById = new Map(allPartsRef.current.map((p) => [p.id, p]));
       setLines((ls ?? []).flatMap((l) => {
         const part = l.part_id ? partById.get(l.part_id) : undefined;
-        return part ? [{ key: l.id, part, qty: Number(l.qty), remarks: l.remarks ?? '', customerRef: l.customer_ref ?? '' }] : [];
+        return part ? [{ key: l.id, part, qty: Number(l.qty), remarks: l.remarks ?? '', customerRef: l.customer_ref ?? '', customerPrice: l.customer_price != null ? String(l.customer_price) : '' }] : [];
       }));
       if (wo.status === 'draft' && rej && rej[0]?.comments) setRejection(rej[0].comments);
     })();
@@ -203,6 +206,7 @@ function WorkOrderForm() {
       part_id: l.part.id, qty: l.qty, remarks: l.remarks || undefined,
       // sent even when blank, so clearing the box doesn't silently fall back to the Item Master's value
       customer_ref: l.customerRef,
+      customer_price: l.customerPrice.trim() === '' ? null : Number(l.customerPrice),
     })),
   });
 
@@ -211,6 +215,8 @@ function WorkOrderForm() {
     if (woDate && woDate < today && woDate !== editing?.wo_date) { setError('WO Date cannot be in the past.'); return null; }
     if (deliveryDate && deliveryDate < today && deliveryDate !== editing?.delivery_date) { setError('Delivery Date cannot be in the past.'); return null; }
     if (deliveryDate && woDate && deliveryDate < woDate) { setError('Delivery Date cannot be before the WO Date.'); return null; }
+    const badPrice = lines.find((l) => l.customerPrice.trim() !== '' && !(Number(l.customerPrice) >= 0));
+    if (badPrice) { setError(`${badPrice.part.part_no}: Customer Price must be a number, 0 or more.`); return null; }
     setSaving(true);
     setError('');
     const { data, error } = await supabase.rpc('save_draft', { p_id: draftId, p: payload() });
@@ -227,8 +233,10 @@ function WorkOrderForm() {
     const part = parts.find((p) => p.id === newPartId);
     const qty = parseFloat(newQty);
     if (!part || !qty || qty <= 0) return;
-    setLines((ls) => [...ls, { key: crypto.randomUUID(), part, qty, remarks: newRemarks, customerRef: newCustomerRef.trim() }]);
-    setNewPartId(''); setNewQty(''); setNewRemarks(''); setNewCustomerRef('');
+    if (newCustomerPrice.trim() !== '' && !(Number(newCustomerPrice) >= 0)) { setError('Customer Price must be a number, 0 or more.'); return; }
+    setError('');
+    setLines((ls) => [...ls, { key: crypto.randomUUID(), part, qty, remarks: newRemarks, customerRef: newCustomerRef.trim(), customerPrice: newCustomerPrice.trim() }]);
+    setNewPartId(''); setNewQty(''); setNewRemarks(''); setNewCustomerRef(''); setNewCustomerPrice('');
   }
 
   function addNote() {
@@ -262,6 +270,8 @@ function WorkOrderForm() {
   const totalQty = lines.reduce((n, l) => n + l.qty, 0);
   const totalWeight = lines.reduce((n, l) => n + l.qty * l.part.standard_weight_kg, 0);
   const totalValue = lines.reduce((n, l) => n + l.qty * l.part.price, 0);
+  const totalLengthM = lines.reduce((n, l) => n + lineLengthM(l.part.description, l.qty), 0);
+  const customerValue = lines.reduce((n, l) => n + l.qty * (Number(l.customerPrice) || 0), 0);
   const selectedNewPart = parts.find((p) => p.id === newPartId);
 
   return (
@@ -336,12 +346,12 @@ function WorkOrderForm() {
             <thead className="bg-kraft-100 text-left font-bold uppercase text-ink-900">
               <tr>
                 <th className="px-2 py-2">Part #</th><th className="px-2 py-2">Description</th><th className="px-2 py-2">Customer Ref</th><th className="px-2 py-2">Qty</th>
-                <th className="px-2 py-2">Price</th><th className="px-2 py-2">Line Total</th><th className="px-2 py-2">Remarks</th><th />
+                <th className="px-2 py-2">Total Length</th><th className="px-2 py-2">Price</th><th className="px-2 py-2">Line Total</th><th className="px-2 py-2">Customer Price</th><th className="px-2 py-2">Customer Value</th><th className="px-2 py-2">Remarks</th><th />
               </tr>
             </thead>
             <tbody>
               {lines.length === 0 && (
-                <tr><td colSpan={8} className="px-2 py-6 text-center text-ink-500">No line items yet — add one below.</td></tr>
+                <tr><td colSpan={11} className="px-2 py-6 text-center text-ink-500">No line items yet — add one below.</td></tr>
               )}
               {lines.map((l) => (
                 <tr key={l.key} className="border-t border-kraft-100">
@@ -349,8 +359,15 @@ function WorkOrderForm() {
                   <td className="px-2 py-2">{l.part.description}</td>
                   <td className="px-2 py-2 font-mono">{l.customerRef || '—'}</td>
                   <td className="px-2 py-2 font-mono">{l.qty}</td>
+                  <td className="px-2 py-2 font-mono">{partLengthMm(l.part.description) != null ? fmtMeters(lineLengthM(l.part.description, l.qty)) : '—'}</td>
                   <td className="px-2 py-2 font-mono">₹{l.part.price.toFixed(2)}</td>
                   <td className="px-2 py-2 font-mono font-bold">₹{(l.qty * l.part.price).toLocaleString('en-IN')}</td>
+                  <td className="px-2 py-2">
+                    <input type="number" min={0} step="any" value={l.customerPrice}
+                      onChange={(e) => setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, customerPrice: e.target.value } : x)))}
+                      className="input w-24 !py-1" />
+                  </td>
+                  <td className="px-2 py-2 font-mono font-bold">{l.customerPrice.trim() === '' ? '—' : `₹${(l.qty * Number(l.customerPrice)).toLocaleString('en-IN')}`}</td>
                   <td className="px-2 py-2">{l.remarks || '—'}</td>
                   <td className="px-2 py-2">
                     <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-ink-300 hover:text-rose-600">✕</button>
@@ -384,6 +401,10 @@ function WorkOrderForm() {
               <label className="mb-1 block text-[11px] font-bold text-ink-700">Customer Ref</label>
               <input value={newCustomerRef} onChange={(e) => setNewCustomerRef(e.target.value)} className="input" />
             </div>
+            <div className="w-32">
+              <label className="mb-1 block text-[11px] font-bold text-ink-700">Customer Price (₹)</label>
+              <input type="number" min={0} step="any" value={newCustomerPrice} onChange={(e) => setNewCustomerPrice(e.target.value)} className="input" />
+            </div>
             <div className="min-w-[160px] flex-1">
               <label className="mb-1 block text-[11px] font-bold text-ink-700">Remarks</label>
               <input value={newRemarks} onChange={(e) => setNewRemarks(e.target.value)} className="input" />
@@ -396,13 +417,16 @@ function WorkOrderForm() {
               <span>Weight: <b>{selectedNewPart.standard_weight_kg} kg</b></span>
               <span>Category: <b>{categoryName(selectedNewPart.category_id)}</b></span>
               <span>Price: <b>₹{selectedNewPart.price.toFixed(2)}</b></span>
+              {partLengthMm(selectedNewPart.description) != null && <span>Length: <b>{partLengthMm(selectedNewPart.description)} mm</b></span>}
             </div>
           )}
 
-          <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
             <Tile label="TOTAL QUANTITY" value={`${totalQty.toLocaleString('en-IN')} Nos`} />
+            <Tile label="TOTAL LENGTH" value={fmtMeters(totalLengthM)} />
             <Tile label="ESTIMATED WEIGHT" value={`${totalWeight.toFixed(1)} kg`} />
             <Tile label="ESTIMATED ORDER VALUE" value={`₹${totalValue.toLocaleString('en-IN')}`} />
+            <Tile label="CUSTOMER VALUE" value={`₹${customerValue.toLocaleString('en-IN')}`} />
           </div>
         </div>
       </section>

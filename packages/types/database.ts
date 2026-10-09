@@ -143,6 +143,7 @@ export interface WorkOrderLine {
   final_price: number;
   qty: number;
   remarks: string | null;
+  customer_price: number | null; // what the customer is charged per unit; entered by the creator (017)
   customer_ref: string | null; // snapshot of the Item Master's, editable per line (006)
 }
 
@@ -286,6 +287,7 @@ export interface SaveDraftLine {
   part_id: string;
   qty: number;
   remarks?: string;
+  customer_price?: number | string | null;
   customer_ref?: string; // omitted -> the Item Master's value
 }
 

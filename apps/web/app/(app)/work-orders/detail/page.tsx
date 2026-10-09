@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { lineLengthM, fmtMeters, partLengthMm } from '@/lib/partLength';
 import { useAuth } from '@/lib/auth';
 import { openQcFile } from '@/lib/qcFiles';
 import { STATUS_LABEL, STATUS_ORDER, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
@@ -66,7 +67,7 @@ function WorkOrderDetail() {
   const [docRef, setDocRef] = useState('');
   const [salesPersonId, setSalesPersonId] = useState('');
   const [allSalesPersons, setAllSalesPersons] = useState<SalesPerson[]>([]);
-  const [lineEdits, setLineEdits] = useState<Record<string, { qty: string; final_price: string }>>({});
+  const [lineEdits, setLineEdits] = useState<Record<string, { qty: string; final_price: string; customer_price: string }>>({});
   const [saving, setSaving] = useState(false);
 
   const [gstRate, setGstRate] = useState('18');
@@ -114,7 +115,7 @@ function WorkOrderDetail() {
       qcHeld: (inspections ?? []).filter((q) => q.work_order_line_id === l.id).reduce((n, q) => n + Number(q.held_qty), 0),
     }));
     setLines(withProgress);
-    setLineEdits(Object.fromEntries(withProgress.map((l) => [l.id, { qty: String(l.qty), final_price: String(l.final_price) }])));
+    setLineEdits(Object.fromEntries(withProgress.map((l) => [l.id, { qty: String(l.qty), final_price: String(l.final_price), customer_price: l.customer_price != null ? String(l.customer_price) : '' }])));
 
     const { data: invs } = await supabase.from('invoices').select('*').eq('work_order_id', id).order('generated_at');
     const withLines = await Promise.all((invs ?? []).map(async (inv) => {
@@ -150,7 +151,7 @@ function WorkOrderDetail() {
     setSaving(true); setError('');
     // Only the lines that actually changed. One call does header + lines together, so a save is exactly one
     // revision (and none if nothing changed) — see app.update_work_order in db/migrations/011.
-    const changedLines: { id: string; qty: number; final_price: number }[] = [];
+    const changedLines: { id: string; qty: number; final_price: number; customer_price?: number | null }[] = [];
     for (const l of lines) {
       const e = lineEdits[l.id];
       if (!e) continue;
@@ -160,7 +161,13 @@ function WorkOrderDetail() {
       if (!Number.isFinite(qty) || !Number.isFinite(final_price)) {
         setSaving(false); setError(`${l.part_no_snapshot}: enter a valid quantity and price.`); return;
       }
-      if (qty !== l.qty || final_price !== l.final_price) changedLines.push({ id: l.id, qty, final_price });
+      const cpText = e.customer_price.trim();
+      const customer_price = cpText === '' ? null : Number(cpText);
+      if (customer_price !== null && !(customer_price >= 0)) {
+        setSaving(false); setError(`${l.part_no_snapshot}: Customer Price must be a number, 0 or more.`); return;
+      }
+      const cpChanged = customer_price !== (l.customer_price ?? null);
+      if (qty !== l.qty || final_price !== l.final_price || cpChanged) changedLines.push({ id: l.id, qty, final_price, ...(cpChanged ? { customer_price } : {}) });
     }
     const { error: e1 } = await supabase.rpc('update_work_order', {
       p_work_order_id: wo.id,
@@ -227,6 +234,8 @@ function WorkOrderDetail() {
   const producedTotal = lines.reduce((n, l) => n + l.produced, 0);
   const qcTotal = lines.reduce((n, l) => n + l.qcApproved, 0);
   const finalValue = lines.reduce((n, l) => n + l.qty * l.final_price, 0);
+  const totalLengthM = lines.reduce((n, l) => n + lineLengthM(l.description_snapshot, l.qty), 0);
+  const customerValue = lines.reduce((n, l) => n + l.qty * (l.customer_price ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-4">
@@ -375,6 +384,7 @@ function WorkOrderDetail() {
                 <th className="px-2 py-2">Ordered</th><th className="px-2 py-2">Produced</th>
                 <th className="px-2 py-2">QC Approved</th><th className="px-2 py-2">Std Price</th>
                 <th className="px-2 py-2">Final Price</th><th className="px-2 py-2">Line Total</th>
+                <th className="px-2 py-2">Total Length</th><th className="px-2 py-2">Customer Price</th><th className="px-2 py-2">Customer Value</th>
               </tr>
             </thead>
             <tbody>
@@ -397,6 +407,13 @@ function WorkOrderDetail() {
                     ) : `₹${l.final_price.toFixed(2)}`}
                   </td>
                   <td className="px-2 py-2 font-mono font-bold">₹{(l.qty * l.final_price).toLocaleString('en-IN')}</td>
+                  <td className="px-2 py-2 font-mono">{partLengthMm(l.description_snapshot) != null ? fmtMeters(lineLengthM(l.description_snapshot, l.qty)) : '—'}</td>
+                  <td className="px-2 py-2 font-mono">
+                    {editing && isMd ? (
+                      <input type="number" min={0} step="any" value={lineEdits[l.id]?.customer_price ?? ''} onChange={(e) => setLineEdits((s) => ({ ...s, [l.id]: { ...s[l.id]!, customer_price: e.target.value } }))} className="input w-24 !py-1" />
+                    ) : l.customer_price != null ? `₹${l.customer_price.toFixed(2)}` : '—'}
+                  </td>
+                  <td className="px-2 py-2 font-mono font-bold">{l.customer_price != null ? `₹${(l.qty * l.customer_price).toLocaleString('en-IN')}` : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -408,6 +425,9 @@ function WorkOrderDetail() {
                 <td className="px-2 py-2">{qcTotal}</td>
                 <td colSpan={2} />
                 <td className="px-2 py-2">₹{finalValue.toLocaleString('en-IN')}</td>
+                <td className="px-2 py-2">{fmtMeters(totalLengthM)}</td>
+                <td />
+                <td className="px-2 py-2">₹{customerValue.toLocaleString('en-IN')}</td>
               </tr>
             </tfoot>
           </table>
