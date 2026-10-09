@@ -36,6 +36,14 @@ export interface Category {
   is_active: boolean;
 }
 
+export interface SalesPerson {
+  id: string;
+  name: string;
+  phone: string | null;
+  location: string | null;
+  is_active: boolean;
+}
+
 export interface Shift {
   id: string;
   code: string;
