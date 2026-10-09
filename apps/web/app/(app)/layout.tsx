@@ -31,6 +31,7 @@ const NAV: { href: string; label: string; roles: UserRole[] }[] = [
   { href: '/users', label: 'Users', roles: ['md', 'admin'] },
   { href: '/backup', label: 'DB Backup', roles: ['md', 'admin'] },
   { href: '/item-master', label: 'Item Master', roles: ['creator', 'md', 'admin'] },
+  { href: '/vendor-master', label: 'Vendor Master', roles: ['creator', 'md', 'admin'] },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

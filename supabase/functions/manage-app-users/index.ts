@@ -25,7 +25,7 @@ const MIN_PASSWORD = 8;
 // ("null"), or from your own computer (localhost). The login token is what protects the function;
 // this list only decides which web pages a browser lets call it. smkrmuthu.github.io covers both the
 // prototype and this app — a check is by origin (scheme+host+port), never by path.
-const ALLOWED_ORIGINS = ["https://smkrmuthu.github.io", "null"];
+const ALLOWED_ORIGINS = ["https://smkrmuthu.github.io", "https://sgr.oneuptech.co", "null"];
 const isLocalPage = (origin) => /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 
 const clean = (v) => (typeof v === "string" ? v.trim() : "");
