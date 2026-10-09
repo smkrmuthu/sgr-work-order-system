@@ -37,6 +37,8 @@ function WorkOrderDetail() {
   const autoEdited = useRef(false);
   const { profile } = useAuth();
   const isMd = profile?.role === 'md' || profile?.role === 'admin';
+  // What the customer is charged: Creator, MD, Admin and Finance only (hidden for Planner / QC).
+  const canSeeCustomerPrice = ['creator', 'md', 'admin', 'finance'].includes(profile?.role ?? '');
   const isFinance = profile?.role === 'finance' || profile?.role === 'md' || profile?.role === 'admin';
 
   const [wo, setWo] = useState<WorkOrder | null>(null);
@@ -384,7 +386,7 @@ function WorkOrderDetail() {
                 <th className="px-2 py-2">Ordered</th><th className="px-2 py-2">Produced</th>
                 <th className="px-2 py-2">QC Approved</th><th className="px-2 py-2">Std Price</th>
                 <th className="px-2 py-2">Final Price</th><th className="px-2 py-2">Line Total</th>
-                <th className="px-2 py-2">Total Length</th><th className="px-2 py-2">Customer Price</th><th className="px-2 py-2">Customer Value</th>
+                <th className="px-2 py-2">Total Length</th>{canSeeCustomerPrice && <><th className="px-2 py-2">Customer Price</th><th className="px-2 py-2">Customer Value</th></>}
               </tr>
             </thead>
             <tbody>
@@ -408,12 +410,12 @@ function WorkOrderDetail() {
                   </td>
                   <td className="px-2 py-2 font-mono font-bold">₹{(l.qty * l.final_price).toLocaleString('en-IN')}</td>
                   <td className="px-2 py-2 font-mono">{partLengthMm(l.description_snapshot) != null ? fmtMeters(lineLengthM(l.description_snapshot, l.qty)) : '—'}</td>
-                  <td className="px-2 py-2 font-mono">
+                  {canSeeCustomerPrice && <><td className="px-2 py-2 font-mono">
                     {editing && isMd ? (
                       <input type="number" min={0} step="any" value={lineEdits[l.id]?.customer_price ?? ''} onChange={(e) => setLineEdits((s) => ({ ...s, [l.id]: { ...s[l.id]!, customer_price: e.target.value } }))} className="input w-24 !py-1" />
                     ) : l.customer_price != null ? `₹${l.customer_price.toFixed(2)}` : '—'}
                   </td>
-                  <td className="px-2 py-2 font-mono font-bold">{l.customer_price != null ? `₹${(l.qty * l.customer_price).toLocaleString('en-IN')}` : '—'}</td>
+                  <td className="px-2 py-2 font-mono font-bold">{l.customer_price != null ? `₹${(l.qty * l.customer_price).toLocaleString('en-IN')}` : '—'}</td></>}
                 </tr>
               ))}
             </tbody>
@@ -426,8 +428,7 @@ function WorkOrderDetail() {
                 <td colSpan={2} />
                 <td className="px-2 py-2">₹{finalValue.toLocaleString('en-IN')}</td>
                 <td className="px-2 py-2">{fmtMeters(totalLengthM)}</td>
-                <td />
-                <td className="px-2 py-2">₹{customerValue.toLocaleString('en-IN')}</td>
+                {canSeeCustomerPrice && <><td /><td className="px-2 py-2">₹{customerValue.toLocaleString('en-IN')}</td></>}
               </tr>
             </tfoot>
           </table>
