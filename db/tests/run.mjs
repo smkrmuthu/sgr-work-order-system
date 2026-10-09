@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -858,5 +858,18 @@ const noDate = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1
   partner_id: partnerRow.id, delivery_location_id: locRow.id, lines: [{ part_id: p1.id, qty: 1 }] })]))).rows[0].id;
 ok(/Delivery Date/.test(await expectErr(() => as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [noDate]))) || ''), 'an order without a Delivery Date cannot be created');
 ok(/work_orders_delivery_date_required/.test(await expectErr(() => as(MD, () => db.query(`select app.update_work_order($1, $2)`, [sfOrder, JSON.stringify({ delivery_date: '' })]))) || ''), 'the MD cannot clear the Delivery Date of a created order');
+
+
+// ---------------------------------------------------------------- Category on the Work Order (022)
+const catRow = (await db.query(`select id from app.categories limit 1`)).rows[0];
+const catOrder = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-10-01', category_id: catRow.id, lines: [{ part_id: p1.id, qty: 1 }] })]))).rows[0].id;
+ok((await db.query(`select category_id from app.work_orders where id=$1`, [catOrder])).rows[0].category_id === catRow.id, 'the order stores its Category');
+await as(CREATOR, () => db.query(`select app.save_draft($1, $2)`, [catOrder, JSON.stringify({ partner_id: partnerRow.id, lines: [{ part_id: p1.id, qty: 1 }] })]));
+ok((await db.query(`select category_id from app.work_orders where id=$1`, [catOrder])).rows[0].category_id === null, 'saving again without a category clears it (the form always sends what is selected)');
+await as(CREATOR, () => db.query(`select app.save_draft($1, $2)`, [catOrder, JSON.stringify({ partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-10-01', category_id: catRow.id, lines: [{ part_id: p1.id, qty: 1 }] })]));
+await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [catOrder]));
+await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [catOrder]));
+ok(/only the Planned Completion Date/.test(await expectErr(() => as(PLANNER, () => db.query(`update app.work_orders set category_id=null where id=$1`, [catOrder]))) || ''), 'a Planner cannot change the Category');
 
 console.log('\nDone.');

@@ -60,6 +60,7 @@ function WorkOrderForm() {
   const [docRef, setDocRef] = useState('');
   const [salesPersons, setSalesPersons] = useState<SalesPerson[]>([]);
   const [salesPersonId, setSalesPersonId] = useState('');
+  const [categoryId, setCategoryId] = useState('');
   const [testCert, setTestCert] = useState(false);
   const [gsmRequired, setGsmRequired] = useState(false);
   const [gsmInner, setGsmInner] = useState('');
@@ -116,7 +117,7 @@ function WorkOrderForm() {
       if (!s) return;
       setDraftId(s.draftId ?? null); setPartnerId(s.partnerId ?? ''); setLocationId(s.locationId ?? '');
       setWoDate(s.woDate || today); setDeliveryDate(s.deliveryDate ?? ''); setDocRef(s.docRef ?? '');
-      setSalesPersonId(s.salesPersonId ?? ''); setTestCert(!!s.testCert); setGsmRequired(!!s.gsmRequired); setGsmInner(s.gsmInner ?? ''); setGsmOuter(s.gsmOuter ?? '');
+      setSalesPersonId(s.salesPersonId ?? ''); setCategoryId(s.categoryId ?? ''); setTestCert(!!s.testCert); setGsmRequired(!!s.gsmRequired); setGsmInner(s.gsmInner ?? ''); setGsmOuter(s.gsmOuter ?? '');
       setPackingRequired(s.packingRequired ?? true); setBundleQty(s.bundleQty ?? '');;
       setSeparateVehicle(!!s.separateVehicle); setTransportNotes(s.transportNotes ?? '');
       setNotes(s.notes ?? []); setNoteInput(s.noteInput ?? '');
@@ -132,12 +133,12 @@ function WorkOrderForm() {
     if (editId || !restoredRef.current) return;
     try {
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-        draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, testCert, gsmRequired, gsmInner, gsmOuter,
+        draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, categoryId, testCert, gsmRequired, gsmInner, gsmOuter,
         packingRequired, bundleQty, separateVehicle, transportNotes, notes, noteInput,
         lines: lines.map((l) => ({ key: l.key, partId: l.part.id, qty: l.qty, remarks: l.remarks, customerRef: l.customerRef, customerPrice: l.customerPrice })),
       }));
     } catch { /* ignore */ }
-  }, [editId, draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, testCert, gsmRequired, gsmInner, gsmOuter,
+  }, [editId, draftId, partnerId, locationId, woDate, deliveryDate, docRef, salesPersonId, categoryId, testCert, gsmRequired, gsmInner, gsmOuter,
       packingRequired, bundleQty, separateVehicle, transportNotes, notes, noteInput, lines]);
 
   // Editing an existing order: load it once the reference data is in.
@@ -169,6 +170,7 @@ function WorkOrderForm() {
       setDeliveryDate(wo.delivery_date ?? '');
       setDocRef(wo.doc_ref ?? '');
       setSalesPersonId(wo.sales_person_id ?? '');
+      setCategoryId(wo.category_id ?? '');
       setTestCert(wo.test_cert_required);
       setGsmRequired(wo.gsm_required);
       setGsmInner(wo.gsm_inner != null ? String(wo.gsm_inner) : '');
@@ -206,6 +208,7 @@ function WorkOrderForm() {
     delivery_date: deliveryDate || undefined,
     doc_ref: docRef.trim() || undefined,
     sales_person_id: salesPersonId || undefined,
+    category_id: categoryId || undefined,
     test_cert_required: testCert,
     gsm_required: gsmRequired,
     gsm_inner: gsmRequired && gsmInner.trim() ? Number(gsmInner) : undefined,
@@ -390,6 +393,22 @@ function WorkOrderForm() {
           <Field label="Delivery Date *">
             <input type="date" min={woDate && woDate > today ? woDate : today} value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="input" />
           </Field>
+          <Field label="Category">
+            <select
+              value={categoryId}
+              onChange={(e) => {
+                setCategoryId(e.target.value);
+                // a part chosen but not yet added that is outside the new category would be confusing to keep
+                const chosen = parts.find((p) => p.id === newPartId);
+                if (e.target.value && chosen && chosen.category_id !== e.target.value) { setNewPartId(''); setNewCustomerRef(''); }
+              }}
+              className="input"
+            >
+              <option value="">All categories</option>
+              {categories.filter((c) => c.is_active || c.id === categoryId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <div className="mt-1 text-[10px] text-ink-300">Narrows the Part # list below to this category.</div>
+          </Field>
         </div>
       </section>
 
@@ -447,7 +466,7 @@ function WorkOrderForm() {
                 className="input"
               >
                 <option value="">Select part #…</option>
-                {parts.filter((p) => p.is_active).map((p) => <option key={p.id} value={p.id}>{p.part_no} — {p.description}</option>)}
+                {parts.filter((p) => p.is_active && (!categoryId || p.category_id === categoryId)).map((p) => <option key={p.id} value={p.id}>{p.part_no} — {p.description}</option>)}
               </select>
             </div>
             <div className="w-24">

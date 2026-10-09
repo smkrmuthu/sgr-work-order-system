@@ -51,6 +51,7 @@ function WorkOrderDetail() {
   const [revisions, setRevisions] = useState<WorkOrderRevision[]>([]);
   const [financeApprovals, setFinanceApprovals] = useState<FinanceApproval[]>([]);
   const [notes, setNotes] = useState<WorkOrderNote[]>([]);
+  const [category, setCategory] = useState<{ name: string } | null>(null);
   const [dateChanges, setDateChanges] = useState<CompletionDateChange[]>([]);
   const [qcFiles, setQcFiles] = useState<Attachment[]>([]);
   const [salesFiles, setSalesFiles] = useState<Attachment[]>([]);
@@ -107,6 +108,7 @@ function WorkOrderDetail() {
     setNotes(noteRows ?? []);
     const { data: dcRows } = await supabase.from('completion_date_changes').select('*').eq('work_order_id', id).order('changed_at', { ascending: false });
     setDateChanges(dcRows ?? []);
+    if (w.category_id) { const { data: cat } = await supabase.from('categories').select('name').eq('id', w.category_id).maybeSingle(); setCategory(cat ?? null); } else setCategory(null);
     // Planner/QC get no rows back from the database for these, so there is nothing to hide on screen.
     const { data: soRows } = await supabase.from('attachments').select('*').eq('work_order_id', id).eq('kind', 'sales_order').order('uploaded_at');
     setSalesFiles(soRows ?? []);
@@ -297,6 +299,7 @@ function WorkOrderDetail() {
               <Info label="Planned Completion" value={wo.expected_completion_date ?? '—'} hint="Planner sets this" />
               <Info label="Document Ref" value={wo.doc_ref ?? '—'} />
               <Info label="Sales Person" value={salesPerson ? `${salesPerson.name}${salesPerson.phone ? ` · ${salesPerson.phone}` : ''}` : '—'} />
+              <Info label="Category" value={category?.name ?? '—'} />
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

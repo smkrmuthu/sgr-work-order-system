@@ -121,6 +121,7 @@ export interface WorkOrder {
   delivery_date: string | null;
   doc_ref: string | null;
   sales_person_id: string | null;
+  category_id: string | null; // 022: optional header category
   expected_completion_date: string | null;
   test_cert_required: boolean;
   gsm_required: boolean; // 019: when true, gsm_inner and gsm_outer are both set once the order is created
@@ -322,6 +323,7 @@ export interface SaveDraftPayload {
   delivery_date?: string;
   doc_ref?: string;
   sales_person_id?: string;
+  category_id?: string;
   test_cert_required?: boolean;
   gsm_required?: boolean;
   gsm_inner?: number;
