@@ -144,6 +144,11 @@ function WorkOrderForm() {
         supabase.from('work_order_notes').select('*').eq('work_order_id', editId).order('position'),
         supabase.from('finance_approvals').select('*').eq('work_order_id', editId).eq('action', 'rejected').order('created_at', { ascending: false }).limit(1),
       ]);
+      // Customer Price lives in its own table (018); this form is only open to Creator/MD, who may read it.
+      const { data: priceRows } = (ls ?? []).length
+        ? await supabase.from('work_order_line_prices').select('*').in('work_order_line_id', (ls ?? []).map((l) => l.id))
+        : { data: [] as { work_order_line_id: string; customer_price: number }[] };
+      const priceByLine = new Map((priceRows ?? []).map((r) => [r.work_order_line_id, r.customer_price]));
       if (!wo) { setEditBlocked('Work order not found.'); return; }
       if (wo.created_by !== profile.id) { setEditBlocked('Only the person who created this Work Order can edit it here.'); return; }
       if (wo.status !== 'draft' && wo.status !== 'pending_finance_approval') {
@@ -169,7 +174,7 @@ function WorkOrderForm() {
       const partById = new Map(allPartsRef.current.map((p) => [p.id, p]));
       setLines((ls ?? []).flatMap((l) => {
         const part = l.part_id ? partById.get(l.part_id) : undefined;
-        return part ? [{ key: l.id, part, qty: Number(l.qty), remarks: l.remarks ?? '', customerRef: l.customer_ref ?? '', customerPrice: l.customer_price != null ? String(l.customer_price) : '' }] : [];
+        return part ? [{ key: l.id, part, qty: Number(l.qty), remarks: l.remarks ?? '', customerRef: l.customer_ref ?? '', customerPrice: priceByLine.has(l.id) ? String(priceByLine.get(l.id)) : '' }] : [];
       }));
       if (wo.status === 'draft' && rej && rej[0]?.comments) setRejection(rej[0].comments);
     })();

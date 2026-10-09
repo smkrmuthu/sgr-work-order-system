@@ -29,6 +29,7 @@ const TABLES = [
   'users', 'categories', 'shifts', 'parts', 'business_partners',
   'partner_addresses', 'partner_contacts', 'delivery_locations',
   'wo_number_counters', 'work_orders', 'work_order_lines',
+  'work_order_line_prices', 'sales_persons',
   'work_order_notes', 'work_order_revisions', 'status_history',
   'completion_date_changes', 'finance_approvals', 'production_entries',
   'production_output_lines', 'qc_submissions', 'qc_inspections',

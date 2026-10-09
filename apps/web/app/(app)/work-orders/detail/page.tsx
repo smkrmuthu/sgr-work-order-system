@@ -10,10 +10,11 @@ import { openQcFile } from '@/lib/qcFiles';
 import { STATUS_LABEL, STATUS_ORDER, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type {
   WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
-  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment, StatusHistoryEntry, SalesPerson,
+  ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment, StatusHistoryEntry, SalesPerson, WorkOrderLinePrice,
 } from '@sgr/types';
 
 interface LineWithProgress extends WorkOrderLine {
+  customer_price: number | null; // from work_order_line_prices; stays null for roles the database won't show it to
   produced: number;
   qcApproved: number;
   qcHeld: number;
@@ -106,12 +107,17 @@ function WorkOrderDetail() {
     setUsers(Object.fromEntries((allUsers ?? []).map((u) => [u.id, u])));
 
     const lineIds = (ls ?? []).map((l) => l.id);
-    const [{ data: produced }, { data: inspections }] = await Promise.all([
+    const [{ data: produced }, { data: inspections }, { data: priceRows }] = await Promise.all([
       lineIds.length ? supabase.from('production_output_lines').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as ProductionOutputLine[] }),
       lineIds.length ? supabase.from('qc_inspections').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as QcInspection[] }),
+      // Customer Price is in its own table that the database only shows to Creator, MD, Admin and Finance
+      // (Planner/QC simply get no rows back, so there is nothing to gate here).
+      lineIds.length ? supabase.from('work_order_line_prices').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as WorkOrderLinePrice[] }),
     ]);
+    const priceByLine = new Map((priceRows ?? []).map((r) => [r.work_order_line_id, Number(r.customer_price)]));
     const withProgress: LineWithProgress[] = (ls ?? []).map((l) => ({
       ...l,
+      customer_price: priceByLine.get(l.id) ?? null,
       produced: (produced ?? []).filter((o) => o.work_order_line_id === l.id).reduce((n, o) => n + Number(o.qty), 0),
       qcApproved: (inspections ?? []).filter((q) => q.work_order_line_id === l.id).reduce((n, q) => n + Number(q.accepted_qty), 0),
       qcHeld: (inspections ?? []).filter((q) => q.work_order_line_id === l.id).reduce((n, q) => n + Number(q.held_qty), 0),

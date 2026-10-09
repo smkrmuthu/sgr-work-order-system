@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -682,5 +682,58 @@ ok(Array.isArray(emptyExport) && emptyExport.length === 0, 'a genuinely empty ta
 let badTableName = null;
 try { await as(MD, () => db.query(`select app.export_table('auth.users')`)); } catch (e) { badTableName = e.message; }
 ok(/Unknown table/.test(badTableName || ''), "export_table refuses anything outside its allow-list (tried 'auth.users'): " + badTableName);
+
+
+// ---------------------------------------------------------------- Customer Price is restricted in the database (018)
+const cpDraft = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-05-01',
+  lines: [{ part_id: p1.id, qty: 10, customer_price: 12.5 }, { part_id: p2.id, qty: 4 }] })]))).rows[0].id;
+await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [cpDraft]));
+const cpLines = (await as(CREATOR, () => db.query(`select id, line_no from app.work_order_lines where work_order_id=$1 order by line_no`, [cpDraft]))).rows;
+
+ok(!(await db.query(`select 1 from information_schema.columns where table_schema='app' and table_name='work_order_lines' and column_name='customer_price'`)).rows.length,
+   'work_order_lines no longer has a customer_price column for anyone to read');
+const cpSeen = async (who) => (await as(who, () => db.query(`select work_order_line_id, customer_price from app.work_order_line_prices`))).rows;
+for (const [name, who] of [['Planner', PLANNER], ['QC', QC]]) {
+  ok((await cpSeen(who)).length === 0, name + ' reads zero customer prices straight from the table');
+}
+for (const [name, who] of [['Creator', CREATOR], ['MD', MD], ['Admin', ADMIN], ['Finance', FINANCE]]) {
+  const r = await cpSeen(who);
+  ok(r.length >= 1 && r.some((x) => Number(x.customer_price) === 12.5), name + ' can read the customer price: ' + r.length + ' row(s)');
+}
+ok(cpLines.length === 2 && (await cpSeen(MD)).filter((x) => cpLines.some((l) => l.id === x.work_order_line_id)).length === 1,
+   'only the line given a price has a price row (the other has none)');
+
+let plannerWrite = null;
+try { await as(PLANNER, () => db.query(`insert into app.work_order_line_prices values ($1, 1)`, [cpLines[1].id])); } catch (e) { plannerWrite = e.message; }
+ok(/row-level security/.test(plannerWrite || ''), 'a Planner cannot write a customer price either: ' + plannerWrite);
+let otherCreatorWrite = null;
+try { await as(OTHER_CREATOR, () => db.query(`insert into app.work_order_line_prices values ($1, 1)`, [cpLines[1].id])); } catch (e) { otherCreatorWrite = e.message; }
+ok(/row-level security/.test(otherCreatorWrite || ''), "another Creator cannot price someone else's order: " + otherCreatorWrite);
+
+await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [cpDraft]));   // released orders open a revision on every MD edit
+// MD edit: price changes, revision says so but never shows the figures, and the snapshot has no price.
+const cpRevBefore = (await as(MD, () => db.query(`select revision from app.work_orders where id=$1`, [cpDraft]))).rows[0].revision;
+await as(MD, () => db.query(`select app.update_work_order($1, $2)`, [cpDraft, JSON.stringify({
+  lines: [{ id: cpLines[0].id, customer_price: 99 }, { id: cpLines[1].id, customer_price: 7 }] })]));
+const cpNow = (await cpSeen(MD)).filter((x) => cpLines.some((l) => l.id === x.work_order_line_id));
+ok(cpNow.length === 2 && cpNow.some((x) => Number(x.customer_price) === 99) && cpNow.some((x) => Number(x.customer_price) === 7),
+   'MD edit updates one price and adds a missing one');
+const cpRevs = (await as(PLANNER, () => db.query(`select change_summary, snapshot from app.work_order_revisions where work_order_id=$1`, [cpDraft]))).rows;
+const cpRevText = JSON.stringify(cpRevs);
+ok(cpRevs.length >= 1 && /customer price changed/.test(cpRevText) && !/12\.5|\b99\b|customer_price/.test(cpRevText),
+   'a Planner reading revisions sees "customer price changed" but no figure and no customer_price key');
+await as(MD, () => db.query(`select app.update_work_order($1, $2)`, [cpDraft, JSON.stringify({ lines: [{ id: cpLines[1].id, customer_price: '' }] })]));
+ok((await cpSeen(MD)).filter((x) => x.work_order_line_id === cpLines[1].id).length === 0, 'clearing the price removes its row');
+
+// Re-saving a draft carries the price across (lines are rewritten each save).
+const cpDraft2 = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, lines: [{ part_id: p1.id, qty: 1, customer_price: 3 }] })]))).rows[0].id;
+await as(CREATOR, () => db.query(`select app.save_draft($1, $2)`, [cpDraft2, JSON.stringify({
+  partner_id: partnerRow.id, lines: [{ part_id: p1.id, qty: 2, customer_price: 4 }] })]));
+const cp2 = (await as(CREATOR, () => db.query(`select p.customer_price from app.work_order_line_prices p join app.work_order_lines l on l.id=p.work_order_line_id where l.work_order_id=$1`, [cpDraft2]))).rows;
+ok(cp2.length === 1 && Number(cp2[0].customer_price) === 4, 'saving a draft again replaces its price (no stale or duplicate rows): ' + JSON.stringify(cp2));
+const cpExport = (await as(MD, () => db.query(`select app.export_table('work_order_line_prices') as rows`))).rows[0].rows;
+ok(Array.isArray(cpExport) && cpExport.length >= 2, 'the MD backup export includes the prices table: ' + cpExport.length + ' row(s)');
 
 console.log('\nDone.');

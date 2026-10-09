@@ -143,8 +143,14 @@ export interface WorkOrderLine {
   final_price: number;
   qty: number;
   remarks: string | null;
-  customer_price: number | null; // what the customer is charged per unit; entered by the creator (017)
   customer_ref: string | null; // snapshot of the Item Master's, editable per line (006)
+}
+
+// What the customer is charged per unit (018). Its own table because only Creator, MD, Admin and Finance may
+// read it; Planner/QC get no rows. A line with no price simply has no row.
+export interface WorkOrderLinePrice {
+  work_order_line_id: string;
+  customer_price: number;
 }
 
 // One point per row (006). `icon` is unused today: the symbol chosen from a note's content goes there later.

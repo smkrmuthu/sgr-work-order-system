@@ -12,6 +12,8 @@ export const BACKUP_TABLES = [
   'wo_number_counters',
   'work_orders',
   'work_order_lines',
+  'work_order_line_prices',
+  'sales_persons',
   'work_order_notes',
   'work_order_revisions',
   'status_history',

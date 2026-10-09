@@ -59,8 +59,18 @@ files **in order**, pasting each one's full contents and clicking Run:
     now go through `app.export_table`, which checks MD/Admin itself and
     can't be bypassed the way a hidden link can. Switch this new function
     on under Exposed functions too
+14. `db/migrations/014_sales_persons.sql`, `015_work_order_sales_person.sql`,
+    `016_update_work_order_sales_person.sql` — Sales Person master and the
+    Sales Person on each Work Order
+15. `db/migrations/017_line_customer_price.sql` — Customer Price per line
+16. `db/migrations/018_customer_price_restricted.sql` — **security fix**:
+    Customer Price moves to its own table
+    (`work_order_line_prices`) that only Creator, MD, Admin and Finance can
+    read, so Planner/QC can't get it through the API. It also removes the
+    price from revision history (existing entries are scrubbed; a price
+    change is now logged as "customer price changed" without figures)
 
-All thirteen are safe to re-run (`create table if not exists`, `drop policy if
+All of them are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
 
 ## 2. Expose the `app` schema to the API
