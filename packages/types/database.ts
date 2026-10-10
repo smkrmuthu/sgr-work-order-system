@@ -220,7 +220,8 @@ export interface ProductionOutputLine {
   production_entry_id: string;
   work_order_line_id: string;
   qty: number;
-  actual_weight_kg: number;
+  unit_weight_g: number | null; // weight of ONE unit, as measured (023); null on older entries
+  actual_weight_kg: number; // qty x unit weight / 1000, calculated by the database
   note: string | null;
 }
 
@@ -339,7 +340,7 @@ export interface SaveDraftPayload {
 export interface RecordProductionLine {
   work_order_line_id: string;
   qty: number;
-  actual_weight_kg?: number;
+  unit_weight_g: number; // weight of one unit in grams; must not exceed the standard + 15%
   note?: string;
 }
 

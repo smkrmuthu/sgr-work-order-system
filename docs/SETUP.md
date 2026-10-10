@@ -82,6 +82,9 @@ files **in order**, pasting each one's full contents and clicking Run:
     Creator/MD/Admin/Finance) and Delivery Date required on every created order
 20. `db/migrations/022_work_order_category.sql` — optional Category on the
     Work Order header (also narrows the Part # list on the form)
+21. `db/migrations/023_unit_weight.sql` — production entries record the
+    weight of ONE unit (grams); the total is calculated by the database and a
+    unit more than 15% over the part's standard weight is refused
 
 All of them are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.

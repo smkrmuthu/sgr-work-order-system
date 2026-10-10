@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -153,7 +153,7 @@ let blockedBeforeApproval = null;
 try {
   await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
     work_order_id: draftId, shift_id: shiftMorningIdEarly, supervisor_id: SUPERVISOR, labour_count: 5,
-    lines: [{ work_order_line_id: preApprovalLine.id, qty: 10 }]
+    lines: [{ work_order_line_id: preApprovalLine.id, qty: 10, unit_weight_g: 1 }]
   })]));
 } catch (e) { blockedBeforeApproval = e.message; }
 ok(/awaiting Finance approval/.test(blockedBeforeApproval || ''), 'production is blocked until Finance approves: ' + blockedBeforeApproval);
@@ -233,14 +233,14 @@ let overProd = null;
 try {
   await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
     work_order_id: draftId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 5,
-    lines: [{ work_order_line_id: lineIds[0].id, qty: 5000, actual_weight_kg: 1 }]
+    lines: [{ work_order_line_id: lineIds[0].id, qty: 5000, unit_weight_g: 1 }]
   })]));
 } catch (e) { overProd = e.message; }
 ok(!!overProd, 'over-production is blocked outright: ' + overProd);
 
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
   work_order_id: draftId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 6,
-  lines: [{ work_order_line_id: lineIds[0].id, qty: 600, actual_weight_kg: 150 }, { work_order_line_id: lineIds[1].id, qty: 200, actual_weight_kg: 20 }]
+  lines: [{ work_order_line_id: lineIds[0].id, qty: 600, unit_weight_g: 1 }, { work_order_line_id: lineIds[1].id, qty: 200, unit_weight_g: 1 }]
 })]));
 let statusAfterProd = (await as(CREATOR, () => db.query(`select status from app.work_orders where id=$1`, [draftId]))).rows[0].status;
 ok(statusAfterProd === 'in_production', 'status auto-recomputed to in_production: ' + statusAfterProd);
@@ -298,7 +298,7 @@ let billBeforeQc = null;
 try { await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'inter')`, [created2.id])); } catch (e) { billBeforeQc = e.message; }
 ok(/Nothing is ready to bill/.test(billBeforeQc || ''), 'an order with no QC-approved goods cannot be billed: ' + billBeforeQc);
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-  work_order_id: created2.id, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 4, lines: [{ work_order_line_id: c2Line, qty: 500, actual_weight_kg: 10 }] })]));
+  work_order_id: created2.id, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 4, lines: [{ work_order_line_id: c2Line, qty: 500, unit_weight_g: 1 }] })]));
 await as(PLANNER, () => db.query(`select app.send_line_to_qc($1)`, [c2Line]));
 await as(QC, () => db.query(`select app.record_qc_inspection($1, 500, 'all good')`, [c2Line]));
 const inv2Id = (await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'inter') as id`, [created2.id]))).rows[0].id;
@@ -486,7 +486,7 @@ ok(/Nothing is ready to bill/.test(doubleBill || ''), 'the same goods cannot be 
 
 // draftId line 1: 600 approved and billed above; produce + approve 400 more -> only those 400 are billable
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-  work_order_id: draftId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 4, lines: [{ work_order_line_id: lineIds[0].id, qty: 400, actual_weight_kg: 1 }] })]));
+  work_order_id: draftId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 4, lines: [{ work_order_line_id: lineIds[0].id, qty: 400, unit_weight_g: 1 }] })]));
 await as(PLANNER, () => db.query(`select app.send_line_to_qc($1)`, [lineIds[0].id]));
 await as(QC, () => db.query(`select app.record_qc_inspection($1, 400, 'second batch')`, [lineIds[0].id]));
 const inv3Id = (await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra') as id`, [draftId]))).rows[0].id;
@@ -551,7 +551,7 @@ ok(noop === 2, 'saving with nothing changed opens no revision');
 
 // Never below what is produced.
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-  work_order_id: mdPendingId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 3, lines: [{ work_order_line_id: mdLine, qty: 100, actual_weight_kg: 1 }] })]));
+  work_order_id: mdPendingId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 3, lines: [{ work_order_line_id: mdLine, qty: 100, unit_weight_g: 1 }] })]));
 let belowMade = null;
 try { await as(MD, () => db.query(`select app.update_work_order($1, $2)`, [mdPendingId, JSON.stringify({ lines: [{ id: mdLine, qty: 50 }] })])); } catch (e) { belowMade = e.message; }
 ok(/already produced or billed/.test(belowMade || ''), 'quantity cannot be cut below what is already produced: ' + belowMade);
@@ -605,7 +605,7 @@ await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [loc
 await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [lockCheckDraft]));
 const lockCheckLine = (await as(CREATOR, () => db.query(`select id from app.work_order_lines where work_order_id=$1`, [lockCheckDraft]))).rows[0].id;
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
-  work_order_id: lockCheckDraft, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 2, lines: [{ work_order_line_id: lockCheckLine, qty: 40 }] })]));
+  work_order_id: lockCheckDraft, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 2, lines: [{ work_order_line_id: lockCheckLine, qty: 40, unit_weight_g: 1 }] })]));
 const sentAfterLock = (await as(PLANNER, () => db.query(`select app.send_line_to_qc($1) as q`, [lockCheckLine]))).rows[0].q;
 await as(QC, () => db.query(`select app.record_qc_inspection($1, 40, 'ok')`, [lockCheckLine]));
 ok(Number(sentAfterLock) === 40, 'record_production + send_line_to_qc + record_qc_inspection still work normally with the new locks: sent ' + sentAfterLock);
@@ -774,7 +774,7 @@ const sdLine = (await db.query(`select id from app.work_order_lines where work_o
 const sdShift = (await db.query(`select id from app.shifts limit 1`)).rows[0].id;
 const prod = (sup) => as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
   work_order_id: sdOrder, shift_id: sdShift, labour_count: 3, ...(sup === undefined ? {} : { supervisor_id: sup }),
-  lines: [{ work_order_line_id: sdLine, qty: 5 }] })]));
+  lines: [{ work_order_line_id: sdLine, qty: 5, unit_weight_g: 1 }] })]));
 const expectErr = async (fn) => { try { await fn(); return null; } catch (e) { return e.message; } };
 
 ok(/Choose the Supervisor/.test(await expectErr(() => prod()) || ''), 'a production entry without a Supervisor is refused');
@@ -871,5 +871,25 @@ await as(CREATOR, () => db.query(`select app.save_draft($1, $2)`, [catOrder, JSO
 await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [catOrder]));
 await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [catOrder]));
 ok(/only the Planned Completion Date/.test(await expectErr(() => as(PLANNER, () => db.query(`update app.work_orders set category_id=null where id=$1`, [catOrder]))) || ''), 'a Planner cannot change the Category');
+
+
+// ---------------------------------------------------------------- weight of one unit + the 15% limit (023)
+const uwOrder = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+  partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-11-01', lines: [{ part_id: p2.id, qty: 100 }] })]))).rows[0].id;
+await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [uwOrder]));
+await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [uwOrder]));
+const uwLine = (await db.query(`select id, standard_weight_kg_snapshot as std from app.work_order_lines where work_order_id=$1`, [uwOrder])).rows[0];
+const uwStdG = Number(uwLine.std) * 1000;
+const uwProd = (lineObj) => as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
+  work_order_id: uwOrder, shift_id: sdShift, supervisor_id: SUPERVISOR, labour_count: 2, lines: [{ work_order_line_id: uwLine.id, qty: 10, ...lineObj }] })]));
+ok(uwStdG > 0, 'the test part has a standard weight: ' + uwStdG + ' g');
+ok(/weight of one unit/.test(await expectErr(() => uwProd({})) || ''), 'an entry line without the weight of one unit is refused');
+ok(/weight of one unit/.test(await expectErr(() => uwProd({ unit_weight_g: 0 })) || ''), 'zero is not a weight');
+const capG = uwStdG * 1.15;
+ok(/more than 15%/.test(await expectErr(() => uwProd({ unit_weight_g: capG + 1 })) || ''), 'a unit more than 15% over the standard is refused: ' + (capG + 1) + ' g vs limit ' + capG + ' g');
+await uwProd({ unit_weight_g: capG });   // exactly at the limit is allowed
+await uwProd({ unit_weight_g: uwStdG * 0.5 });   // lighter is allowed for now
+const uwRows = (await db.query(`select unit_weight_g, actual_weight_kg, qty from app.production_output_lines where work_order_line_id=$1 order by unit_weight_g desc`, [uwLine.id])).rows;
+ok(uwRows.length === 2 && Math.abs(Number(uwRows[0].actual_weight_kg) - 10 * capG / 1000) < 0.001, 'the total weight is calculated in the database: qty x unit weight = ' + uwRows[0].actual_weight_kg + ' kg');
 
 console.log('\nDone.');
