@@ -20,6 +20,8 @@ interface DateChange extends CompletionDateChange { by?: { full_name: string | n
 interface LineRow extends WorkOrderLine {
   produced: number;
   sentToQc: number;
+  tolMax: number;        // % above the standard one unit may weigh (Item Master)
+  tolMin: number | null; // % below it (null = no lower limit)
 }
 
 export default function PlannerPage() {
@@ -58,14 +60,19 @@ export default function PlannerPage() {
   const loadLines = useCallback(async (woId: string) => {
     const { data: ls } = await supabase.from('work_order_lines').select('*').eq('work_order_id', woId).order('line_no');
     const lineIds = (ls ?? []).map((l) => l.id);
-    const [{ data: prod }, { data: sub }] = await Promise.all([
+    const partIds = [...new Set((ls ?? []).map((l) => l.part_id).filter((x): x is string => !!x))];
+    const [{ data: prod }, { data: sub }, { data: partRows }] = await Promise.all([
       lineIds.length ? supabase.from('production_output_lines').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as ProductionOutputLine[] }),
       lineIds.length ? supabase.from('qc_submissions').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as QcSubmission[] }),
+      partIds.length ? supabase.from('parts').select('id, weight_tol_max_pct, weight_tol_min_pct').in('id', partIds) : Promise.resolve({ data: [] as { id: string; weight_tol_max_pct: number; weight_tol_min_pct: number | null }[] }),
     ]);
+    const tol = new Map((partRows ?? []).map((r) => [r.id, r]));
     setLines((ls ?? []).map((l) => ({
       ...l,
       produced: (prod ?? []).filter((p) => p.work_order_line_id === l.id).reduce((n, p) => n + Number(p.qty), 0),
       sentToQc: (sub ?? []).filter((s) => s.work_order_line_id === l.id).reduce((n, s) => n + Number(s.qty), 0),
+      tolMax: Number(tol.get(l.part_id ?? '')?.weight_tol_max_pct ?? 15),
+      tolMin: tol.get(l.part_id ?? '')?.weight_tol_min_pct != null ? Number(tol.get(l.part_id ?? '')!.weight_tol_min_pct) : null,
     })));
   }, []);
 
@@ -87,12 +94,14 @@ export default function PlannerPage() {
 
   // Weight of one unit is typed in grams. It is required, and may not be more than 15% above the part's standard
   // weight (the database enforces the same rule). Returns a message, or null when fine.
-  const maxUnitG = (l: LineRow) => Number(l.standard_weight_kg_snapshot || 0) * 1150;
+  const stdG = (l: LineRow) => Number(l.standard_weight_kg_snapshot || 0) * 1000;
+  const maxUnitG = (l: LineRow) => stdG(l) * (1 + l.tolMax / 100);
+  const minUnitG = (l: LineRow) => (l.tolMin != null ? stdG(l) * (1 - l.tolMin / 100) : 0);
   function unitWeightProblem(l: LineRow, unitG: string): string | null {
     const g = Number(unitG);
     if (!unitG.trim() || !(g > 0)) return 'enter the weight of one unit (in grams).';
-    const max = maxUnitG(l);
-    if (max > 0 && g > max) return `one unit weighs ${g} g, more than 15% above the standard ${(max / 1.15).toFixed(0)} g (limit ${max.toFixed(0)} g). It cannot be recorded.`;
+    if (stdG(l) > 0 && g > maxUnitG(l)) return `one unit weighs ${g} g, more than ${l.tolMax}% above the standard ${stdG(l).toFixed(0)} g (limit ${maxUnitG(l).toFixed(0)} g). It cannot be recorded.`;
+    if (stdG(l) > 0 && l.tolMin != null && g < minUnitG(l)) return `one unit weighs ${g} g, more than ${l.tolMin}% below the standard ${stdG(l).toFixed(0)} g (minimum ${minUnitG(l).toFixed(0)} g). It cannot be recorded.`;
     return null;
   }
 
@@ -276,7 +285,7 @@ export default function PlannerPage() {
                         <Field label="Weight of 1 unit (g) *">
                           <input type="number" step="0.01" min={0} value={v.unitG} onChange={(e) => setEntryValues((s) => ({ ...s, [l.id]: { ...v, unitG: e.target.value } }))}
                             className={`input w-36 ${problem ? '!border-rose-400 !bg-rose-50' : ''}`} />
-                          {maxG > 0 && <div className="mt-1 text-[10px] text-ink-500">Max {maxG.toFixed(0)} g (std + 15%)</div>}
+                          {maxG > 0 && <div className="mt-1 text-[10px] text-ink-500">{l.tolMin != null ? `${minUnitG(l).toFixed(0)} – ` : 'Max '}{maxG.toFixed(0)} g (std {l.tolMin != null ? `−${l.tolMin}% / ` : ''}+{l.tolMax}%)</div>}
                         </Field>
                         <Field label="Actual Total Weight (kg)">
                           <input type="text" readOnly disabled value={actualTotal} placeholder="0.00" className="input w-36 font-mono disabled:bg-kraft-100 disabled:text-ink-700 disabled:cursor-not-allowed" />

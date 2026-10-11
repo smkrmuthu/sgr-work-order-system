@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql', '024_item_weight_limits.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -891,5 +891,22 @@ await uwProd({ unit_weight_g: capG });   // exactly at the limit is allowed
 await uwProd({ unit_weight_g: uwStdG * 0.5 });   // lighter is allowed for now
 const uwRows = (await db.query(`select unit_weight_g, actual_weight_kg, qty from app.production_output_lines where work_order_line_id=$1 order by unit_weight_g desc`, [uwLine.id])).rows;
 ok(uwRows.length === 2 && Math.abs(Number(uwRows[0].actual_weight_kg) - 10 * capG / 1000) < 0.001, 'the total weight is calculated in the database: qty x unit weight = ' + uwRows[0].actual_weight_kg + ' kg');
+
+
+// ---------------------------------------------------------------- weight limits per item (024)
+const wlPart = (await db.query(`select weight_tol_max_pct, weight_tol_min_pct from app.parts where id=$1`, [p2.id])).rows[0];
+ok(Number(wlPart.weight_tol_max_pct) === 15 && wlPart.weight_tol_min_pct === null, 'every item starts at +15% and no lower limit: ' + JSON.stringify(wlPart));
+ok(/Only the MD or Admin/.test(await expectErr(() => as(CREATOR, () => db.query(`update app.parts set weight_tol_max_pct=30 where id=$1`, [p2.id]))) || ''), 'a Creator cannot change an item\'s weight limits');
+await as(CREATOR, () => db.query(`update app.parts set remarks='creator can still edit the rest' where id=$1`, [p2.id]));
+await as(MD, () => db.query(`update app.parts set weight_tol_max_pct=30, weight_tol_min_pct=10 where id=$1`, [p2.id]));
+const wlAudit = (await db.query(`select actor_id, old_values, new_values from app.audit_events where table_name='parts' and record_id=$1`, [p2.id])).rows;
+ok(wlAudit.length === 1 && wlAudit[0].actor_id === MD && Number(wlAudit[0].new_values.weight_tol_max_pct) === 30 && Number(wlAudit[0].old_values.weight_tol_max_pct) === 15, 'the change is recorded in audit_events with old and new values and who');
+await uwProd({ unit_weight_g: uwStdG * 1.25 });   // 25% over is now fine because the limit is 30%
+ok(/more than 30% above/.test(await expectErr(() => uwProd({ unit_weight_g: uwStdG * 1.31 })) || ''), 'the new +30% limit is enforced and named in the message');
+ok(/more than 10% below/.test(await expectErr(() => uwProd({ unit_weight_g: uwStdG * 0.85 })) || ''), 'a minimum of 10% below is enforced once it is set');
+await uwProd({ unit_weight_g: uwStdG * 0.92 });
+await as(MD, () => db.query(`update app.parts set weight_tol_max_pct=15, weight_tol_min_pct=null where id=$1`, [p2.id]));
+ok(/more than 15% above/.test(await expectErr(() => uwProd({ unit_weight_g: uwStdG * 1.2 })) || ''), 'back to the default, 20% over is refused again');
+ok(/check constraint/.test(await expectErr(() => as(MD, () => db.query(`update app.parts set weight_tol_max_pct=150 where id=$1`, [p2.id]))) || ''), 'a limit above 100% is refused');
 
 console.log('\nDone.');

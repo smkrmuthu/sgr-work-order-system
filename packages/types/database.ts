@@ -70,6 +70,8 @@ export interface Part {
   price: number;
   remarks: string | null;
   customer_ref: string | null;
+  weight_tol_max_pct: number; // 024: one unit may weigh at most this % above standard_weight_kg (default 15)
+  weight_tol_min_pct: number | null; // 024: ...and at most this % below it (null = no lower limit)
   is_active: boolean;
 }
 

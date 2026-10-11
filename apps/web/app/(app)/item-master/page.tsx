@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
 import type { Category, Part, SalesPerson, Supervisor } from '@sgr/types';
 
 // Master Creator / MD / Admin (see NAV in the layout). The database enforces the same rule: the
@@ -13,12 +14,16 @@ import type { Category, Part, SalesPerson, Supervisor } from '@sgr/types';
 type PartForm = {
   part_no: string; description: string; uom: string; standard_weight_kg: string;
   category_id: string; price: string; customer_ref: string; remarks: string;
+  tol_max: string; tol_min: string;   // weight limits, % of the standard weight (blank minimum = no lower limit)
 };
 const EMPTY_PART: PartForm = {
-  part_no: '', description: '', uom: 'NOS', standard_weight_kg: '0', category_id: '', price: '0', customer_ref: '', remarks: '',
+  part_no: '', description: '', uom: 'NOS', standard_weight_kg: '0', category_id: '', price: '0', customer_ref: '', remarks: '', tol_max: '15', tol_min: '',
 };
 
 export default function ItemMasterPage() {
+  const { profile } = useAuth();
+  // The database allows only MD/Admin to change weight limits; a Creator sees them but cannot edit.
+  const canEditLimits = profile?.role === 'md' || profile?.role === 'admin';
   const [tab, setTab] = useState<'items' | 'categories' | 'sales' | 'supervisors'>('items');
   const [parts, setParts] = useState<Part[] | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -69,6 +74,7 @@ export default function ItemMasterPage() {
       part_no: p.part_no, description: p.description, uom: p.uom,
       standard_weight_kg: String(p.standard_weight_kg), category_id: p.category_id ?? '',
       price: String(p.price), customer_ref: p.customer_ref ?? '', remarks: p.remarks ?? '',
+      tol_max: String(p.weight_tol_max_pct ?? 15), tol_min: p.weight_tol_min_pct != null ? String(p.weight_tol_min_pct) : '',
     });
     setEditingId(p.id); setError('');
   }
@@ -80,11 +86,16 @@ export default function ItemMasterPage() {
     const weight = Number(form.standard_weight_kg), price = Number(form.price);
     if (!Number.isFinite(weight) || weight < 0) { setError('Standard Weight must be a number, 0 or more.'); return; }
     if (!Number.isFinite(price) || price < 0) { setError('Standard Price must be a number, 0 or more.'); return; }
+    const tolMax = Number(form.tol_max), tolMin = form.tol_min.trim() === '' ? null : Number(form.tol_min);
+    if (!Number.isFinite(tolMax) || tolMax < 0 || tolMax > 100) { setError('Maximum weight limit must be a percentage from 0 to 100.'); return; }
+    if (tolMin !== null && (!Number.isFinite(tolMin) || tolMin < 0 || tolMin > 100)) { setError('Minimum weight limit must be a percentage from 0 to 100, or blank for no limit.'); return; }
     setSaving(true); setError('');
     const row = {
       part_no: form.part_no.trim(), description: form.description.trim(), uom: form.uom.trim() || 'NOS',
       standard_weight_kg: weight, category_id: form.category_id || null,
       price, customer_ref: form.customer_ref.trim() || null, remarks: form.remarks.trim() || null,
+      // only sent by MD/Admin: the database refuses anyone else's change to these
+      ...(canEditLimits ? { weight_tol_max_pct: tolMax, weight_tol_min_pct: tolMin } : {}),
     };
     const { error } = editingId === 'new'
       ? await supabase.from('parts').insert(row)
@@ -181,6 +192,17 @@ export default function ItemMasterPage() {
                 </Field>
                 <Field label="UOM"><input value={form.uom} onChange={set('uom')} className="input" /></Field>
                 <Field label="Standard Weight (kg)"><input type="number" value={form.standard_weight_kg} onChange={set('standard_weight_kg')} className="input" /></Field>
+                <Field label="Max over standard (%)"><input type="number" min={0} max={100} step="any" value={form.tol_max} onChange={set('tol_max')} disabled={!canEditLimits} className="input disabled:bg-kraft-100" /></Field>
+                <Field label="Min under standard (%)"><input type="number" min={0} max={100} step="any" value={form.tol_min} onChange={set('tol_min')} disabled={!canEditLimits} placeholder="no lower limit" className="input disabled:bg-kraft-100" /></Field>
+                <div className="col-span-2 self-end pb-2 text-[11px] text-ink-500">
+                  {(() => {
+                    const w = Number(form.standard_weight_kg) * 1000;
+                    if (!(w > 0)) return 'Set a standard weight to see the allowed range per unit.';
+                    const hi = w * (1 + (Number(form.tol_max) || 0) / 100);
+                    const lo = form.tol_min.trim() === '' ? null : w * (1 - (Number(form.tol_min) || 0) / 100);
+                    return <>Allowed weight of one unit when production is recorded: <b className="font-mono">{lo === null ? 'any lighter' : `${lo.toFixed(0)} g`} – {hi.toFixed(0)} g</b>{canEditLimits ? '' : ' (only the MD or Admin can change the limits)'}</>;
+                  })()}
+                </div>
                 <Field label="Standard Price (₹)"><input type="number" value={form.price} onChange={set('price')} className="input" /></Field>
                 <Field label="Customer Ref"><input value={form.customer_ref} onChange={set('customer_ref')} className="input" /></Field>
                 <div className="col-span-2 sm:col-span-3"><Field label="Remarks"><input value={form.remarks} onChange={set('remarks')} className="input" /></Field></div>
@@ -200,13 +222,13 @@ export default function ItemMasterPage() {
               <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
                 <tr>
                   <th className="px-3 py-2">Part #</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Category</th>
-                  <th className="px-3 py-2">UOM</th><th className="px-3 py-2 text-right">Weight (kg)</th><th className="px-3 py-2 text-right">Price</th>
+                  <th className="px-3 py-2">UOM</th><th className="px-3 py-2 text-right">Weight (kg)</th><th className="px-3 py-2 text-right">Weight limit</th><th className="px-3 py-2 text-right">Price</th>
                   <th className="px-3 py-2 text-center">Active</th><th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
-                {parts === null && <tr><td colSpan={8} className="px-3 py-8 text-center text-ink-500">Loading…</td></tr>}
-                {parts !== null && shown.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-ink-500">No items found.</td></tr>}
+                {parts === null && <tr><td colSpan={9} className="px-3 py-8 text-center text-ink-500">Loading…</td></tr>}
+                {parts !== null && shown.length === 0 && <tr><td colSpan={9} className="px-3 py-8 text-center text-ink-500">No items found.</td></tr>}
                 {shown.map((p) => (
                   <tr key={p.id} className={`border-t border-kraft-100 ${p.is_active ? '' : 'opacity-50'}`}>
                     <td className="px-3 py-2 font-mono font-bold">{p.part_no}</td>
@@ -214,6 +236,7 @@ export default function ItemMasterPage() {
                     <td className="px-3 py-2">{catName_(p.category_id)}</td>
                     <td className="px-3 py-2">{p.uom}</td>
                     <td className="px-3 py-2 text-right font-mono">{p.standard_weight_kg}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs">{p.weight_tol_min_pct != null ? `−${p.weight_tol_min_pct}% / ` : ''}+{p.weight_tol_max_pct}%</td>
                     <td className="px-3 py-2 text-right font-mono">₹{Number(p.price).toLocaleString('en-IN')}</td>
                     <td className="px-3 py-2 text-center"><input type="checkbox" checked={p.is_active} onChange={() => toggleActive('parts', p.id, p.is_active)} /></td>
                     <td className="px-3 py-2 text-right"><button onClick={() => startEdit(p)} className="btn-secondary !px-2 !py-1">Edit</button></td>
