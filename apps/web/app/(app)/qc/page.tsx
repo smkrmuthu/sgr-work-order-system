@@ -5,12 +5,16 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { QC_ACCEPT, QC_MAX_BYTES, checkQcFile, uploadQcFile } from '@/lib/qcFiles';
 import { STATUS_LABEL } from '@/lib/statusLabels';
-import type { WorkOrder, WorkOrderLine, QcSubmission, QcInspection } from '@sgr/types';
+import type { WorkOrder, WorkOrderLine, QcSubmission, QcInspection, QcRejectReason } from '@sgr/types';
 
 interface LineRow extends WorkOrderLine {
   sent: number;
   approved: number;
   held: number;
+  rejAwaiting: number;   // rejected units still waiting for Finance/MD
+  scrapped: number;
+  reproduced: number;
+  canWithdraw: boolean;  // some rejection nobody has acted on yet
 }
 
 export default function QcPage() {
@@ -25,6 +29,8 @@ export default function QcPage() {
   const [comments, setComments] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [warning, setWarning] = useState('');
+  const [reasons, setReasons] = useState<QcRejectReason[]>([]);
+  const [reasonId, setReasonId] = useState('');
   const [busy, setBusy] = useState(false);
 
   const selected = orders.find((o) => o.id === selectedId) ?? null;
@@ -40,25 +46,38 @@ export default function QcPage() {
   const loadLines = useCallback(async (woId: string) => {
     const { data: ls } = await supabase.from('work_order_lines').select('*').eq('work_order_id', woId).order('line_no');
     const lineIds = (ls ?? []).map((l) => l.id);
-    const [{ data: sub }, { data: insp }] = await Promise.all([
+    const [{ data: sub }, { data: insp }, { data: rejs }] = await Promise.all([
       lineIds.length ? supabase.from('qc_submissions').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as QcSubmission[] }),
       lineIds.length ? supabase.from('qc_inspections').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as QcInspection[] }),
+      lineIds.length ? supabase.from('qc_rejections').select('*, decisions:qc_rejection_decisions(action, qty)').in('work_order_line_id', lineIds).neq('status', 'withdrawn') : Promise.resolve({ data: [] as any[] }),
     ]);
     setLines((ls ?? []).map((l) => ({
       ...l,
       sent: (sub ?? []).filter((s) => s.work_order_line_id === l.id).reduce((n, s) => n + Number(s.qty), 0),
       approved: (insp ?? []).filter((i) => i.work_order_line_id === l.id).reduce((n, i) => n + Number(i.accepted_qty), 0),
       held: (insp ?? []).filter((i) => i.work_order_line_id === l.id).reduce((n, i) => n + Number(i.held_qty), 0),
+      ...(() => {
+        const mine = (rejs ?? []).filter((r: any) => r.work_order_line_id === l.id && r.source === 'qc');
+        const decided = (r: any, a: string) => (r.decisions ?? []).filter((d: any) => d.action === a).reduce((n: number, d: any) => n + Number(d.qty), 0);
+        const decidedAll = (r: any) => (r.decisions ?? []).reduce((n: number, d: any) => n + Number(d.qty), 0);
+        return {
+          rejAwaiting: mine.filter((r: any) => r.status === 'awaiting_decision').reduce((n: number, r: any) => n + Number(r.qty) - decidedAll(r), 0),
+          scrapped: mine.reduce((n: number, r: any) => n + decided(r, 'scrap'), 0),
+          reproduced: mine.reduce((n: number, r: any) => n + decided(r, 'reproduce'), 0),
+          canWithdraw: mine.some((r: any) => r.status === 'awaiting_decision' && (r.decisions ?? []).length === 0),
+        };
+      })(),
     })));
   }, []);
 
-  useEffect(() => { loadOrders(); }, [loadOrders]);
+  useEffect(() => { loadOrders(); supabase.from('qc_reject_reasons').select('*').eq('is_active', true).order('name').then(({ data }) => setReasons(data ?? [])); }, [loadOrders]);
   useEffect(() => { if (selectedId) loadLines(selectedId); setInspectingId(null); }, [selectedId, loadLines]);
 
   function startInspect(l: LineRow) {
     setInspectingId(l.id);
     setAccepted(String(l.sent - l.approved - l.held));
     setComments('');
+    setReasonId('');
     setFiles([]);
   }
 
@@ -75,9 +94,13 @@ export default function QcPage() {
 
   async function submitInspection() {
     if (!inspectingId) return;
+    const line = lines.find((l) => l.id === inspectingId);
+    const rejecting = line ? Math.max(0, line.sent - line.approved - line.held - Number(accepted || 0)) : 0;
+    if (rejecting > 0 && !reasonId) { setError(`Choose the reason for rejecting the ${rejecting} unit(s).`); return; }
     setBusy(true); setError(''); setWarning('');
     const { data: inspectionId, error } = await supabase.rpc('record_qc_inspection', {
       p_work_order_line_id: inspectingId, p_accepted_qty: Number(accepted), p_comments: comments || null,
+      p_reason_id: rejecting > 0 ? reasonId : null,
     });
     if (error) { setBusy(false); setError(error.message); return; }
 
@@ -123,7 +146,7 @@ export default function QcPage() {
           <div className="overflow-x-auto p-5">
             <table className="w-full text-xs">
               <thead className="bg-kraft-100 text-left font-bold uppercase text-ink-900">
-                <tr><th className="px-2 py-2">Part #</th><th className="px-2 py-2">Awaiting</th><th className="px-2 py-2">Approved</th><th className="px-2 py-2">Held</th><th /></tr>
+                <tr><th className="px-2 py-2">Part #</th><th className="px-2 py-2">Awaiting</th><th className="px-2 py-2">Approved</th><th className="px-2 py-2">Rejected</th><th /></tr>
               </thead>
               <tbody>
                 {lines.map((l) => {
@@ -134,10 +157,12 @@ export default function QcPage() {
                       <td className="px-2 py-2 font-mono font-bold">{awaiting}</td>
                       <td className="px-2 py-2 font-mono">{l.approved}</td>
                       <td className="px-2 py-2">
-                        {l.held > 0 ? (
-                          <span className="flex items-center gap-2">
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold text-amber-800">{l.held} held</span>
-                            <button onClick={() => reopen(l.id)} className="btn-secondary !px-2 !py-1">Re-open</button>
+                        {l.rejAwaiting + l.scrapped + l.reproduced > 0 ? (
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            {l.rejAwaiting > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold text-amber-800">{l.rejAwaiting} awaiting Finance/MD</span>}
+                            {l.scrapped > 0 && <span className="rounded-full bg-rose-100 px-2 py-0.5 font-bold text-rose-800">{l.scrapped} scrapped</span>}
+                            {l.reproduced > 0 && <span className="rounded-full bg-blue-100 px-2 py-0.5 font-bold text-blue-800">{l.reproduced} to re-produce</span>}
+                            {l.canWithdraw && <button onClick={() => reopen(l.id)} className="btn-secondary !px-2 !py-1" title="Take the rejection back and inspect again">Withdraw</button>}
                           </span>
                         ) : '—'}
                       </td>
@@ -159,6 +184,20 @@ export default function QcPage() {
                     <Field label="Comments"><textarea value={comments} onChange={(e) => setComments(e.target.value)} className="input min-h-[40px]" /></Field>
                   </div>
                 </div>
+                {(() => {
+                  const rejecting = Math.max(0, inspectingLine.sent - inspectingLine.approved - inspectingLine.held - Number(accepted || 0));
+                  return rejecting > 0 ? (
+                    <div className="mt-3 max-w-md rounded-md border border-amber-200 bg-amber-50 p-3">
+                      <div className="mb-1.5 text-xs font-bold text-amber-900">{rejecting} unit(s) will be rejected and sent to Finance and the MD to scrap or re-produce.</div>
+                      <Field label="Reason for rejection *">
+                        <select value={reasonId} onChange={(e) => setReasonId(e.target.value)} className="input">
+                          <option value="">Select reason…</option>
+                          {reasons.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                      </Field>
+                    </div>
+                  ) : null;
+                })()}
                 <div className="mt-3">
                   <label className="mb-1 block text-[11px] font-bold text-ink-700">
                     Attach files <span className="font-normal text-ink-500">(reports, certificates, scans — max {QC_MAX_BYTES / 1048576} MB each)</span>

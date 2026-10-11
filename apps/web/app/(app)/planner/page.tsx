@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { STATUS_LABEL } from '@/lib/statusLabels';
-import type { WorkOrder, WorkOrderLine, Shift, Supervisor, CompletionDateChange, ProductionOutputLine, QcSubmission } from '@sgr/types';
+import type { WorkOrder, WorkOrderLine, Shift, Supervisor, CompletionDateChange, ProductionOutputLine, QcSubmission, QcRejectReason } from '@sgr/types';
 
 interface LogEntry {
   id: string;
@@ -22,6 +22,7 @@ interface LineRow extends WorkOrderLine {
   sentToQc: number;
   tolMax: number;        // % above the standard one unit may weigh (Item Master)
   tolMin: number | null; // % below it (null = no lower limit)
+  prodRejPending: number; // units rejected at production, still waiting for Finance/MD
 }
 
 export default function PlannerPage() {
@@ -32,6 +33,9 @@ export default function PlannerPage() {
   const [supervisors, setSupervisors] = useState<Supervisor[]>([]);
   const [supervisorId, setSupervisorId] = useState('');
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [reasons, setReasons] = useState<QcRejectReason[]>([]);
+  const [rejecting, setRejecting] = useState<{ lineId: string; reasonId: string; comment: string } | null>(null);
+  const [notice, setNotice] = useState('');
   const [dateChanges, setDateChanges] = useState<DateChange[]>([]);
   const [error, setError] = useState('');
 
@@ -61,16 +65,19 @@ export default function PlannerPage() {
     const { data: ls } = await supabase.from('work_order_lines').select('*').eq('work_order_id', woId).order('line_no');
     const lineIds = (ls ?? []).map((l) => l.id);
     const partIds = [...new Set((ls ?? []).map((l) => l.part_id).filter((x): x is string => !!x))];
-    const [{ data: prod }, { data: sub }, { data: partRows }] = await Promise.all([
+    const [{ data: prod }, { data: sub }, { data: partRows }, { data: rejRows }] = await Promise.all([
       lineIds.length ? supabase.from('production_output_lines').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as ProductionOutputLine[] }),
       lineIds.length ? supabase.from('qc_submissions').select('*').in('work_order_line_id', lineIds) : Promise.resolve({ data: [] as QcSubmission[] }),
       partIds.length ? supabase.from('parts').select('id, weight_tol_max_pct, weight_tol_min_pct').in('id', partIds) : Promise.resolve({ data: [] as { id: string; weight_tol_max_pct: number; weight_tol_min_pct: number | null }[] }),
+      lineIds.length ? supabase.from('qc_rejections').select('work_order_line_id, qty, decisions:qc_rejection_decisions(qty)').in('work_order_line_id', lineIds).eq('source', 'production').eq('status', 'awaiting_decision') : Promise.resolve({ data: [] as any[] }),
     ]);
     const tol = new Map((partRows ?? []).map((r) => [r.id, r]));
     setLines((ls ?? []).map((l) => ({
       ...l,
       produced: (prod ?? []).filter((p) => p.work_order_line_id === l.id).reduce((n, p) => n + Number(p.qty), 0),
       sentToQc: (sub ?? []).filter((s) => s.work_order_line_id === l.id).reduce((n, s) => n + Number(s.qty), 0),
+      prodRejPending: (rejRows ?? []).filter((r: any) => r.work_order_line_id === l.id)
+        .reduce((n: number, r: any) => n + Number(r.qty) - (r.decisions ?? []).reduce((m: number, d: any) => m + Number(d.qty), 0), 0),
       tolMax: Number(tol.get(l.part_id ?? '')?.weight_tol_max_pct ?? 15),
       tolMin: tol.get(l.part_id ?? '')?.weight_tol_min_pct != null ? Number(tol.get(l.part_id ?? '')!.weight_tol_min_pct) : null,
     })));
@@ -88,6 +95,7 @@ export default function PlannerPage() {
     setDateChanges((changes ?? []) as unknown as DateChange[]);
   }, []);
 
+  useEffect(() => { supabase.from('qc_reject_reasons').select('*').eq('is_active', true).order('name').then(({ data }) => setReasons(data ?? [])); }, []);
   useEffect(() => { supabase.from('supervisors').select('*').eq('is_active', true).order('name').then(({ data }) => setSupervisors(data ?? [])); }, []);
   useEffect(() => { loadOrders(); supabase.from('shifts').select('*').order('code').then(({ data }) => { setShifts(data ?? []); if (data?.length) setShiftId(data[0]!.id); }); }, [loadOrders]);
   useEffect(() => { if (selectedId) { loadLines(selectedId); loadHistory(selectedId); } }, [selectedId, loadLines, loadHistory]);
@@ -103,6 +111,24 @@ export default function PlannerPage() {
     if (stdG(l) > 0 && g > maxUnitG(l)) return `one unit weighs ${g} g, more than ${l.tolMax}% above the standard ${stdG(l).toFixed(0)} g (limit ${maxUnitG(l).toFixed(0)} g). It cannot be recorded.`;
     if (stdG(l) > 0 && l.tolMin != null && g < minUnitG(l)) return `one unit weighs ${g} g, more than ${l.tolMin}% below the standard ${stdG(l).toFixed(0)} g (minimum ${minUnitG(l).toFixed(0)} g). It cannot be recorded.`;
     return null;
+  }
+
+  // Units that fail the weight limit cannot go through the daily entry. They are rejected at production instead:
+  // they skip QC and wait for Finance/MD to scrap them or have them re-produced.
+  async function rejectAtProduction(l: LineRow) {
+    if (!rejecting || rejecting.lineId !== l.id) return;
+    const v = entryValues[l.id];
+    if (!rejecting.reasonId) { setError('Choose the reason for rejecting these units.'); return; }
+    setError(''); setNotice('');
+    const { error } = await supabase.rpc('record_production_reject', {
+      p_work_order_line_id: l.id, p_qty: Number(v?.qty), p_unit_weight_g: Number(v?.unitG),
+      p_reason_id: rejecting.reasonId, p_comment: rejecting.comment.trim() || null,
+    });
+    if (error) { setError(error.message); return; }
+    setNotice(`${v?.qty} unit(s) of ${l.part_no_snapshot} rejected at production. Finance and the MD will decide to scrap or re-produce them.`);
+    setRejecting(null);
+    setEntryValues((s) => { const n = { ...s }; delete n[l.id]; return n; });
+    loadLines(l.work_order_id);
   }
 
   async function submitEntry() {
@@ -158,6 +184,7 @@ export default function PlannerPage() {
         </select>
       </div>
       {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{error}</div>}
+      {notice && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{notice}</div>}
       {!selected && <p className="text-sm text-ink-500">Nothing in the ready-for-production queue.</p>}
 
       {selected && (
@@ -227,7 +254,12 @@ export default function PlannerPage() {
                     const unsent = l.produced - l.sentToQc;
                     return (
                       <tr key={l.id} className="border-t border-kraft-100">
-                        <td className="px-2 py-2 font-mono font-bold">{l.part_no_snapshot}</td>
+                        <td className="px-2 py-2 font-mono font-bold">
+                          {l.part_no_snapshot}
+                          {l.replaces_line_id && <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-px font-sans text-[10px] text-blue-800">Re-produce</span>}
+                          {l.short_closed_qty > 0 && <span className="ml-2 rounded-full bg-rose-100 px-1.5 py-px font-sans text-[10px] text-rose-800">{l.short_closed_qty} written off</span>}
+                          {l.prodRejPending > 0 && <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-px font-sans text-[10px] text-amber-800">{l.prodRejPending} rejected, awaiting decision</span>}
+                        </td>
                         <td className="px-2 py-2 font-mono">{l.qty}</td>
                         <td className="px-2 py-2 font-mono">{l.produced}</td>
                         <td className="px-2 py-2 font-mono">{l.sentToQc}</td>
@@ -264,7 +296,7 @@ export default function PlannerPage() {
                 <Field label="Labour Count"><input type="number" value={labour} onChange={(e) => setLabour(e.target.value)} className="input" /></Field>
               </div>
               {lines.map((l) => {
-                const remaining = l.qty - l.produced;
+                const remaining = l.qty - l.short_closed_qty - l.prodRejPending - l.produced;
                 const v = entryValues[l.id] ?? { qty: '', unitG: '', note: '' };
                 const stdWeight = Number(l.standard_weight_kg_snapshot || 0);
                 const qtyN = Number(v.qty);
@@ -295,7 +327,34 @@ export default function PlannerPage() {
                           <input type="text" readOnly disabled value={stdTotal} placeholder="0.00" className="input w-32 font-mono disabled:bg-kraft-100 disabled:text-ink-500 disabled:cursor-not-allowed" />
                         </Field>
                         <Field label="Note"><input value={v.note} onChange={(e) => setEntryValues((s) => ({ ...s, [l.id]: { ...v, note: e.target.value } }))} className="input" /></Field>
-                        {problem && <div className="basis-full rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700">{problem}</div>}
+                        {problem && (
+                          <div className="basis-full rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                            <div className="font-bold">{problem}</div>
+                            {rejecting?.lineId === l.id ? (
+                              <div className="mt-2 flex flex-wrap items-end gap-2">
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-bold">Reason *</label>
+                                  <select value={rejecting.reasonId} onChange={(e) => setRejecting({ ...rejecting, reasonId: e.target.value })} className="input w-52">
+                                    <option value="">Select reason…</option>
+                                    {reasons.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                                  </select>
+                                </div>
+                                <div className="min-w-[180px] flex-1">
+                                  <label className="mb-1 block text-[11px] font-bold">Comment</label>
+                                  <input value={rejecting.comment} onChange={(e) => setRejecting({ ...rejecting, comment: e.target.value })} className="input" />
+                                </div>
+                                <button onClick={() => rejectAtProduction(l)} className="btn-primary !bg-rose-700 hover:!bg-rose-800">Reject {v.qty} unit(s)</button>
+                                <button onClick={() => setRejecting(null)} className="btn-secondary">Cancel</button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setRejecting({ lineId: l.id, reasonId: reasons.find((r) => /weight/i.test(r.name) && (unitN > stdG(l) ? /over/i : /under/i).test(r.name))?.id ?? '', comment: '' }); }}
+                                className="mt-2 rounded-md border border-rose-300 bg-white px-2.5 py-1 text-[11px] font-bold text-rose-800 hover:bg-rose-100">
+                                Reject these {v.qty} unit(s) instead
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </>
                     ) : <span className="pt-5 text-xs font-bold text-emerald-600">✓ Fully produced</span>}
                   </div>

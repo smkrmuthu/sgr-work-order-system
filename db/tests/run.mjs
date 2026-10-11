@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql', '024_item_weight_limits.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql', '024_item_weight_limits.sql', '025_qc_rejections.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -70,6 +70,8 @@ const as = async (userId, fn) => {
 };
 // Every production entry needs a supervisor (020); this one is used by all the entries below.
 const SUPERVISOR = (await db.query(`insert into app.supervisors (name, phone) values ('Test Supervisor', '9000000000') returning id`)).rows[0].id;
+// QC rejections need a reason (025); this is the default one used by older tests.
+const REASON_OTHER = (await db.query(`select id from app.qc_reject_reasons where name='Other'`)).rows[0].id;
 const asAnon = async (fn) => { await db.exec('set role anon'); try { return await fn(); } finally { await db.exec('reset role'); } };
 
 // ---------------------------------------------------------------- master data + RLS on it
@@ -254,7 +256,7 @@ let overAccept = null;
 try { await as(QC, () => db.query(`select app.record_qc_inspection($1, 601, 'x')`, [lineIds[0].id])); } catch (e) { overAccept = e.message; }
 ok(!!overAccept, 'cannot accept more than what is awaiting inspection: ' + overAccept);
 
-await as(QC, () => db.query(`select app.record_qc_inspection($1, 500, 'Sample check passed')`, [lineIds[0].id]));
+await as(QC, () => db.query(`select app.record_qc_inspection($1, 500, 'Sample check passed', $2)`, [lineIds[0].id, REASON_OTHER]));
 const insp = (await as(CREATOR, () => db.query(`select accepted_qty, held_qty from app.qc_inspections where work_order_line_id=$1`, [lineIds[0].id]))).rows[0];
 ok(Number(insp.accepted_qty) === 500 && Number(insp.held_qty) === 100, 'Accept 500 of 600 -> 100 Held (not accepted, not dropped): ' + JSON.stringify(insp));
 statusAfterProd = (await as(CREATOR, () => db.query(`select status from app.work_orders where id=$1`, [draftId]))).rows[0].status;
@@ -908,5 +910,96 @@ await uwProd({ unit_weight_g: uwStdG * 0.92 });
 await as(MD, () => db.query(`update app.parts set weight_tol_max_pct=15, weight_tol_min_pct=null where id=$1`, [p2.id]));
 ok(/more than 15% above/.test(await expectErr(() => uwProd({ unit_weight_g: uwStdG * 1.2 })) || ''), 'back to the default, 20% over is refused again');
 ok(/check constraint/.test(await expectErr(() => as(MD, () => db.query(`update app.parts set weight_tol_max_pct=150 where id=$1`, [p2.id]))) || ''), 'a limit above 100% is refused');
+
+
+// ---------------------------------------------------------------- QC rejections: scrap / re-produce (025)
+const REASON_OVER = (await db.query(`select id from app.qc_reject_reasons where name='Overweight'`)).rows[0].id;
+const rjOrder = async (qty) => {
+  const woId = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
+    partner_id: partnerRow.id, delivery_location_id: locRow.id, delivery_date: '2027-12-15', lines: [{ part_id: p2.id, qty }] })]))).rows[0].id;
+  await as(CREATOR, () => db.query(`select * from app.create_work_order($1)`, [woId]));
+  await as(FINANCE, () => db.query(`select app.approve_work_order($1)`, [woId]));
+  const lineId = (await db.query(`select id from app.work_order_lines where work_order_id=$1`, [woId])).rows[0].id;
+  return { woId, lineId };
+};
+const rjProduce = (woId, lineId, qty) => as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
+  work_order_id: woId, shift_id: sdShift, supervisor_id: SUPERVISOR, labour_count: 2, lines: [{ work_order_line_id: lineId, qty, unit_weight_g: 1 }] })]));
+const rjSend = (lineId) => as(PLANNER, () => db.query(`select app.send_line_to_qc($1)`, [lineId]));
+const rjInspect = (lineId, accepted, reason) => as(QC, () => db.query(`select app.record_qc_inspection($1, $2, 'inspected', $3)`, [lineId, accepted, reason ?? null]));
+const rjStatus = async (woId) => (await db.query(`select status, revision, delivery_date from app.work_orders where id=$1`, [woId])).rows[0];
+const lineRow = async (lineId) => (await db.query(`select qty, short_closed_qty from app.work_order_lines where id=$1`, [lineId])).rows[0];
+
+const R1 = await rjOrder(100);
+await rjProduce(R1.woId, R1.lineId, 100); await rjSend(R1.lineId);
+ok(/Choose the reason/.test(await expectErr(() => rjInspect(R1.lineId, 60)) || ''), 'rejecting units without a reason is refused');
+await rjInspect(R1.lineId, 60, REASON_OVER);
+const rej1 = (await db.query(`select * from app.qc_rejections where work_order_line_id=$1`, [R1.lineId])).rows[0];
+ok(rej1 && Number(rej1.qty) === 40 && rej1.source === 'qc' && rej1.status === 'awaiting_decision' && rej1.reason_id === REASON_OVER && rej1.recorded_by === QC,
+   'QC rejecting 40 of 100 creates a rejection awaiting decision, with reason and who: ' + JSON.stringify(rej1 && [rej1.qty, rej1.status]));
+ok((await rjStatus(R1.woId)).status === 'partially_qc_approved', 'the order is partially approved, not ready for dispatch');
+
+for (const [name, who] of [['Planner', PLANNER], ['QC', QC], ['Creator', CREATOR]]) {
+  ok(/Only Finance or the MD/.test(await expectErr(() => as(who, () => db.query(`select app.decide_rejection($1, 'scrap', 1, 'x')`, [rej1.id]))) || ''), name + ' cannot decide on a rejection');
+}
+ok(/row-level security|permission denied/.test(await expectErr(() => as(FINANCE, () => db.query(`insert into app.qc_rejection_decisions (rejection_id, action, qty, note) values ($1, 'scrap', 1, 'x')`, [rej1.id]))) || ''), 'decisions cannot be written directly, only through the function');
+const directEdit = await as(MD, () => db.query(`update app.qc_rejections set status='decided' where id=$1 returning id`, [rej1.id]));
+ok(directEdit.rows.length === 0 && (await db.query(`select status from app.qc_rejections where id=$1`, [rej1.id])).rows[0].status === 'awaiting_decision', 'nor can a rejection be edited directly (no row changes)');
+ok(/note/.test(await expectErr(() => as(FINANCE, () => db.query(`select app.decide_rejection($1, 'scrap', 10, '  ')`, [rej1.id]))) || ''), 'a decision needs a note');
+ok(/between 0 and 40/.test(await expectErr(() => as(FINANCE, () => db.query(`select app.decide_rejection($1, 'scrap', 41, 'too many')`, [rej1.id]))) || ''), 'cannot decide more units than were rejected');
+ok(/only to a re-produce/.test(await expectErr(() => as(FINANCE, () => db.query(`select app.decide_rejection($1, 'scrap', 5, 'x', 10)`, [rej1.id]))) || ''), 'a price applies only to a re-produce');
+
+const revBeforeDecision = (await rjStatus(R1.woId)).revision;
+await as(FINANCE, () => db.query(`select app.decide_rejection($1, 'scrap', 10, 'Cracked, not repairable')`, [rej1.id]));
+const afterScrap = await lineRow(R1.lineId);
+ok(Number(afterScrap.short_closed_qty) === 10 && (await rjStatus(R1.woId)).revision === revBeforeDecision + 1, 'scrapping 10 writes them off (short-closes the line) and opens a revision');
+ok((await db.query(`select status from app.qc_rejections where id=$1`, [rej1.id])).rows[0].status === 'awaiting_decision', 'the other 30 units are still awaiting a decision');
+ok(/can no longer be reopened|Nothing here can be reopened/.test(await expectErr(() => as(QC, () => db.query(`select app.reopen_held($1)`, [R1.lineId]))) || ''), 'QC cannot reopen a rejection that already has a decision');
+
+await as(MD, () => db.query(`select app.decide_rejection($1, 'reproduce', 30, 'Remake the batch', 55, '2027-12-31')`, [rej1.id]));
+const afterRepro = await lineRow(R1.lineId);
+const repl = (await db.query(`select * from app.work_order_lines where replaces_line_id=$1`, [R1.lineId])).rows[0];
+ok(Number(afterRepro.short_closed_qty) === 40 && repl && Number(repl.qty) === 30 && Number(repl.final_price) === 55 && repl.line_no === 2,
+   're-produce writes off 30 more and adds a replacement line of 30 at the new price: ' + JSON.stringify(repl && [repl.line_no, repl.qty, repl.final_price]));
+const st1 = await rjStatus(R1.woId);
+ok(st1.delivery_date.toISOString().startsWith('2027-12-31') && st1.revision === revBeforeDecision + 2, 'the new delivery date is applied to the order and recorded as a revision');
+ok((await db.query(`select status from app.qc_rejections where id=$1`, [rej1.id])).rows[0].status === 'decided', 'the rejection is fully decided');
+ok(/already been decided/.test(await expectErr(() => as(FINANCE, () => db.query(`select app.decide_rejection($1, 'scrap', 1, 'again')`, [rej1.id]))) || ''), 'a decided rejection cannot be decided again');
+const revSummaries = (await as(PLANNER, () => db.query(`select change_summary from app.work_order_revisions where work_order_id=$1 order by revision`, [R1.woId]))).rows.map((r) => r.change_summary).join(' | ');
+ok(/scrapped/.test(revSummaries) && /re-produced/.test(revSummaries) && /Remake the batch/.test(revSummaries), 'the revision history says what was decided and why: ' + revSummaries);
+
+// Billing: only the 60 accepted units, never the scrapped ones.
+await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]));
+const billed1 = Number((await db.query(`select coalesce(sum(il.qty),0) q from app.invoice_lines il join app.invoices i on i.id=il.invoice_id where i.work_order_id=$1`, [R1.woId])).rows[0].q);
+ok(billed1 === 60, 'only the 60 accepted units are billed: ' + billed1);
+ok(/Nothing is ready to bill/.test(await expectErr(() => as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]))) || ''), 'the written-off units cannot be billed');
+
+// The replacement is made, inspected and billed at its own price; the order then completes on the REQUIRED quantity (90).
+await rjProduce(R1.woId, repl.id, 30); await rjSend(repl.id); await rjInspect(repl.id, 30);
+ok((await rjStatus(R1.woId)).status === 'ready_for_dispatch', 'with 60 + 30 accepted against 90 required, the order is ready for dispatch');
+await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]));
+const replBilled = (await db.query(`select il.qty, il.price from app.invoice_lines il where il.work_order_line_id=$1`, [repl.id])).rows[0];
+ok(Number(replBilled.qty) === 30 && Number(replBilled.price) === 55, 'the replacement units are billed at the revised price: ' + JSON.stringify(replBilled));
+for (const inv of (await db.query(`select id from app.invoices where work_order_id=$1`, [R1.woId])).rows) await as(MD, () => db.query(`select app.mark_invoice_dispatched($1)`, [inv.id]));
+ok((await rjStatus(R1.woId)).status === 'completed', 'once everything required is billed and dispatched, the order completes despite 10 units never being made');
+
+// Withdraw an undecided rejection
+const R2 = await rjOrder(20);
+await rjProduce(R2.woId, R2.lineId, 20); await rjSend(R2.lineId); await rjInspect(R2.lineId, 15, REASON_OVER);
+await as(QC, () => db.query(`select app.reopen_held($1)`, [R2.lineId]));
+ok((await db.query(`select status from app.qc_rejections where work_order_line_id=$1`, [R2.lineId])).rows[0].status === 'withdrawn', 'QC can withdraw a rejection nobody has acted on (it goes back to awaiting inspection)');
+await rjInspect(R2.lineId, 5);   // the re-inspection accepts the remaining 5
+
+// Rejected at production: skips QC, holds capacity, and a scrap short-closes the line
+const R3 = await rjOrder(50);
+ok(/Only the Production Planner/.test(await expectErr(() => as(QC, () => db.query(`select app.record_production_reject($1, 5, 1100, $2)`, [R3.lineId, REASON_OVER]))) || ''), 'QC cannot reject at production');
+ok(/Choose the reason/.test(await expectErr(() => as(PLANNER, () => db.query(`select app.record_production_reject($1, 5, 1100, null)`, [R3.lineId]))) || ''), 'a production rejection needs a reason');
+const prodRej = (await as(PLANNER, () => db.query(`select app.record_production_reject($1, 10, 1100, $2, 'over 15%') as id`, [R3.lineId, REASON_OVER]))).rows[0].id;
+ok((await db.query(`select source, unit_weight_g, status from app.qc_rejections where id=$1`, [prodRej])).rows[0].source === 'production', 'the Planner can record units as rejected at production, with the measured weight');
+ok(/above the ordered quantity/.test(await expectErr(() => rjProduce(R3.woId, R3.lineId, 41)) || ''), 'units awaiting a decision hold their place: only 40 more can be made, not 41');
+await rjProduce(R3.woId, R3.lineId, 40);
+await as(FINANCE, () => db.query(`select app.decide_rejection($1, 'scrap', 10, 'Overweight, scrap')`, [prodRej]));
+await rjSend(R3.lineId); await rjInspect(R3.lineId, 40);
+ok((await rjStatus(R3.woId)).status === 'ready_for_dispatch', 'after scrapping the 10 over-weight units, 40 accepted completes the order (50 ordered, 40 required)');
+ok((await as(PLANNER, () => db.query(`select 1 from app.qc_rejections`))).rows.length >= 3, 'everyone signed in can read rejections');
 
 console.log('\nDone.');

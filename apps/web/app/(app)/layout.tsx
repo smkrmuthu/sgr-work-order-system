@@ -26,6 +26,7 @@ const NAV: { href: string; label: string; roles: UserRole[] }[] = [
   { href: '/finance', label: 'Finance Approval', roles: ['finance', 'md', 'admin'] },
   { href: '/planner', label: 'Production Planner', roles: ['planner', 'md', 'admin'] },
   { href: '/qc', label: 'QC', roles: ['qc', 'md', 'admin'] },
+  { href: '/rejections', label: 'Rejections', roles: ['finance', 'md', 'admin', 'qc'] },
   { href: '/finished-goods', label: 'Finished Goods', roles: ['md', 'admin', 'finance', 'planner', 'qc'] },
   { href: '/dispatch', label: 'Ready for Dispatch', roles: ['md', 'admin', 'finance', 'planner', 'qc'] },
   { href: '/users', label: 'Users', roles: ['md', 'admin'] },
@@ -47,6 +48,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loading && !session) router.replace('/login');
   }, [loading, session, router]);
+
+  // How many rejected quantities wait for a Finance/MD decision (shown as a badge on the Rejections tab).
+  const [pendingRej, setPendingRej] = useState(0);
+  const canDecideRej = profile?.role === 'finance' || profile?.role === 'md' || profile?.role === 'admin';
+  useEffect(() => {
+    if (!canDecideRej) return;
+    let cancelled = false;
+    supabase.from('qc_rejections').select('id', { count: 'exact', head: true }).eq('status', 'awaiting_decision')
+      .then(({ count }) => { if (!cancelled) setPendingRej(count ?? 0); });
+    return () => { cancelled = true; };
+  }, [canDecideRej, pathname]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -134,6 +146,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   }`}
                 >
                   {n.label.toUpperCase()}
+                  {n.href === '/rejections' && pendingRej > 0 && <span className="ml-1.5 rounded-full bg-amber-400 px-1.5 py-px text-[10px] font-bold text-forest-950">{pendingRej}</span>}
                 </Link>
               );
             })}
@@ -163,7 +176,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       active ? 'bg-forest-700 text-white' : 'text-forest-200 hover:bg-forest-800 hover:text-white'
                     }`}
                   >
-                    <span>{n.label}</span>
+                    <span>{n.label}{n.href === '/rejections' && pendingRej > 0 && <span className="ml-2 rounded-full bg-amber-400 px-1.5 py-px text-[10px] font-bold text-forest-950">{pendingRej}</span>}</span>
                     <span className="text-forest-400">→</span>
                   </Link>
                 );

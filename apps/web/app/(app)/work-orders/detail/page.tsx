@@ -55,6 +55,7 @@ function WorkOrderDetail() {
   const [dateChanges, setDateChanges] = useState<CompletionDateChange[]>([]);
   const [qcFiles, setQcFiles] = useState<Attachment[]>([]);
   const [salesFiles, setSalesFiles] = useState<Attachment[]>([]);
+  const [rejections, setRejections] = useState<any[]>([]);
   const [history, setHistory] = useState<StatusHistoryEntry[]>([]);
   const [fileError, setFileError] = useState('');
   const [invoices, setInvoices] = useState<(Invoice & { lines: InvoiceLine[] })[]>([]);
@@ -133,6 +134,11 @@ function WorkOrderDetail() {
       qcHeld: (inspections ?? []).filter((q) => q.work_order_line_id === l.id).reduce((n, q) => n + Number(q.held_qty), 0),
     }));
     setLines(withProgress);
+    // Rejected units and what Finance/MD decided for them (025).
+    const { data: rejRows } = lineIds.length
+      ? await supabase.from('qc_rejections').select('*, reason:qc_reject_reasons(name), decisions:qc_rejection_decisions(*)').in('work_order_line_id', lineIds).neq('status', 'withdrawn').order('recorded_at')
+      : { data: [] as any[] };
+    setRejections(rejRows ?? []);
     setLineEdits(Object.fromEntries(withProgress.map((l) => [l.id, { qty: String(l.qty), final_price: String(l.final_price), customer_price: l.customer_price != null ? String(l.customer_price) : '' }])));
 
     const { data: invs } = await supabase.from('invoices').select('*').eq('work_order_id', id).order('generated_at');
@@ -420,7 +426,11 @@ function WorkOrderDetail() {
             <tbody>
               {lines.map((l) => (
                 <tr key={l.id} className="border-t border-kraft-100">
-                  <td className="px-2 py-2 font-mono font-bold">{l.part_no_snapshot}</td>
+                  <td className="px-2 py-2 font-mono font-bold">
+                    {l.part_no_snapshot}
+                    {l.replaces_line_id && <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-px font-sans text-[10px] text-blue-800">Re-produce</span>}
+                    {l.short_closed_qty > 0 && <span className="ml-2 rounded-full bg-rose-100 px-1.5 py-px font-sans text-[10px] text-rose-800">{l.short_closed_qty} written off</span>}
+                  </td>
                   <td className="px-2 py-2">{l.description_snapshot}</td>
                   <td className="px-2 py-2 font-mono">{l.customer_ref || '—'}</td>
                   <td className="px-2 py-2 font-mono">
@@ -505,6 +515,36 @@ function WorkOrderDetail() {
           </div>
         )}
       </section>
+
+      {rejections.length > 0 && (
+        <section className="rounded-lg border border-kraft-200 bg-white">
+          <div className="flex items-center justify-between border-b border-kraft-100 px-5 py-3">
+            <div className="text-sm font-bold text-forest-900">REJECTIONS</div>
+            <Link href="/rejections" className="text-xs font-bold text-forest-800 hover:underline">Open Rejections →</Link>
+          </div>
+          <ul className="flex flex-col gap-2 p-5 text-[13px]">
+            {rejections.map((r) => {
+              const line = lines.find((l) => l.id === r.work_order_line_id);
+              const decided = (r.decisions ?? []).reduce((n: number, d: any) => n + Number(d.qty), 0);
+              return (
+                <li key={r.id} className="rounded-md border border-kraft-200 bg-kraft-50 px-3 py-2">
+                  <b className="font-mono">{line?.part_no_snapshot}</b> · {r.qty} unit(s) · {r.reason?.name ?? '—'} · {r.source === 'qc' ? 'rejected by QC' : 'rejected at production'}
+                  {r.comment ? <span className="text-ink-500"> — {r.comment}</span> : null}
+                  <div className="mt-1 text-xs">
+                    {(r.decisions ?? []).map((d: any) => (
+                      <div key={d.id}>
+                        <b>{d.action === 'scrap' ? `Scrapped ${d.qty}` : `Re-produce ${d.qty}`}</b> — {d.note}
+                        <span className="text-ink-500"> · {new Date(d.decided_at).toLocaleString('en-IN')}</span>
+                      </div>
+                    ))}
+                    {Number(r.qty) - decided > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold text-amber-800">{Number(r.qty) - decided} awaiting Finance/MD decision</span>}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {salesFiles.length > 0 && (
         <section className="rounded-lg border border-kraft-200 bg-white">

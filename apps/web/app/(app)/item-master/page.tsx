@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import type { Category, Part, SalesPerson, Supervisor } from '@sgr/types';
+import type { Category, Part, SalesPerson, Supervisor, QcRejectReason } from '@sgr/types';
 
 // Master Creator / MD / Admin (see NAV in the layout). The database enforces the same rule: the
 // master-data tables are writable only by those roles (db/migrations/002_rls.sql).
@@ -24,7 +24,7 @@ export default function ItemMasterPage() {
   const { profile } = useAuth();
   // The database allows only MD/Admin to change weight limits; a Creator sees them but cannot edit.
   const canEditLimits = profile?.role === 'md' || profile?.role === 'admin';
-  const [tab, setTab] = useState<'items' | 'categories' | 'sales' | 'supervisors'>('items');
+  const [tab, setTab] = useState<'items' | 'categories' | 'sales' | 'supervisors' | 'reasons'>('items');
   const [parts, setParts] = useState<Part[] | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState('');
@@ -47,17 +47,23 @@ export default function ItemMasterPage() {
   const [svName, setSvName] = useState('');
   const [svPhone, setSvPhone] = useState('');
 
+  const [reasons, setReasons] = useState<QcRejectReason[]>([]);
+  const [reasonName, setReasonName] = useState('');
+
   const load = useCallback(async () => {
-    const [p, c, sp, sv] = await Promise.all([
+    const [p, c, sp, sv, rs] = await Promise.all([
       supabase.from('parts').select('*').order('part_no'),
       supabase.from('categories').select('*').order('code'),
       supabase.from('sales_persons').select('*').order('name'),
       supabase.from('supervisors').select('*').order('name'),
+      supabase.from('qc_reject_reasons').select('*').order('name'),
     ]);
     if (p.error) { setError(p.error.message); return; }
     if (c.error) { setError(c.error.message); return; }
     if (sp.error) { setError(sp.error.message); return; }
     if (sv.error) { setError(sv.error.message); return; }
+    if (rs.error) { setError(rs.error.message); return; }
+    setReasons(rs.data ?? []);
     setSupervisors(sv.data ?? []);
     setSalesPersons(sp.data ?? []);
     setParts(p.data ?? []);
@@ -106,7 +112,7 @@ export default function ItemMasterPage() {
     load();
   }
 
-  async function toggleActive(table: 'parts' | 'categories' | 'sales_persons' | 'supervisors', id: string, is_active: boolean) {
+  async function toggleActive(table: 'parts' | 'categories' | 'sales_persons' | 'supervisors' | 'qc_reject_reasons', id: string, is_active: boolean) {
     setError('');
     const { error } = await supabase.from(table).update({ is_active: !is_active }).eq('id', id);
     if (error) { setError(error.message); return; }
@@ -144,6 +150,15 @@ export default function ItemMasterPage() {
     load();
   }
 
+  async function addReason() {
+    if (!reasonName.trim()) { setError('Enter the reason.'); return; }
+    setError('');
+    const { error } = await supabase.from('qc_reject_reasons').insert({ name: reasonName.trim() });
+    if (error) { setError(/duplicate|unique/i.test(error.message) ? 'That reason already exists.' : error.message); return; }
+    setReasonName('');
+    load();
+  }
+
   const shown = (parts ?? []).filter((p) => {
     if (!q.trim()) return true;
     const s = q.toLowerCase();
@@ -166,10 +181,10 @@ export default function ItemMasterPage() {
       </div>
 
       <div className="flex gap-1 border-b border-kraft-200">
-        {(['items', 'categories', 'sales', 'supervisors'] as const).map((t) => (
+        {(['items', 'categories', 'sales', 'supervisors', 'reasons'] as const).map((t) => (
           <button key={t} onClick={() => { setTab(t); setError(''); }}
             className={`border-b-2 px-3 py-2 text-xs font-bold uppercase tracking-wide ${tab === t ? 'border-forest-600 text-forest-900' : 'border-transparent text-ink-500'}`}>
-            {t === 'items' ? `Items (${parts?.length ?? 0})` : t === 'categories' ? `Categories (${categories.length})` : t === 'sales' ? `Sales Persons (${salesPersons.length})` : `Supervisors (${supervisors.length})`}
+            {t === 'items' ? `Items (${parts?.length ?? 0})` : t === 'categories' ? `Categories (${categories.length})` : t === 'sales' ? `Sales Persons (${salesPersons.length})` : t === 'supervisors' ? `Supervisors (${supervisors.length})` : `Reject Reasons (${reasons.length})`}
           </button>
         ))}
       </div>
@@ -305,6 +320,34 @@ export default function ItemMasterPage() {
                     <td className="px-3 py-2">{s.phone ?? '—'}</td>
                     <td className="px-3 py-2">{s.location ?? '—'}</td>
                     <td className="px-3 py-2 text-center"><input type="checkbox" checked={s.is_active} onChange={() => toggleActive('sales_persons', s.id, s.is_active)} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {tab === 'reasons' && (
+        <>
+          <section className="rounded-lg border border-kraft-200 bg-white p-5">
+            <div className="mb-1 text-sm font-bold text-forest-900">NEW REJECT REASON</div>
+            <p className="mb-3 text-xs text-ink-500">QC (or the Planner, at production) picks one of these whenever units are rejected. Reasons are deactivated, never deleted, so old rejections keep their wording.</p>
+            <div className="flex gap-2">
+              <input value={reasonName} onChange={(e) => setReasonName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addReason(); }} placeholder="e.g. Burst seam" className="input max-w-sm" />
+              <button onClick={addReason} className="btn-primary">Add Reason</button>
+            </div>
+          </section>
+          <div className="overflow-hidden rounded-lg border border-kraft-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
+                <tr><th className="px-3 py-2">Reason</th><th className="px-3 py-2 text-center">Active</th></tr>
+              </thead>
+              <tbody>
+                {reasons.map((r) => (
+                  <tr key={r.id} className={`border-t border-kraft-100 ${r.is_active ? '' : 'opacity-50'}`}>
+                    <td className="px-3 py-2 font-bold">{r.name}</td>
+                    <td className="px-3 py-2 text-center"><input type="checkbox" checked={r.is_active} onChange={() => toggleActive('qc_reject_reasons', r.id, r.is_active)} /></td>
                   </tr>
                 ))}
               </tbody>

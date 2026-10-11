@@ -89,6 +89,12 @@ files **in order**, pasting each one's full contents and clicking Run:
     become per-item settings in the Item Master (max % over standard, default
     15; optional min % under). Only MD/Admin can change them and every change
     is written to audit_events
+23. `db/migrations/025_qc_rejections.sql` — QC rejection workflow: rejected
+    units get a reason (Item Master → Reject Reasons) and go to Finance/MD
+    (Rejections tab) to be scrapped or re-produced; a re-produce adds a
+    replacement line with its own price and an optional new delivery date;
+    the Planner can reject over-weight units at production; scrapped units
+    are never billed and an order completes on what is still required
 
 All of them are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.

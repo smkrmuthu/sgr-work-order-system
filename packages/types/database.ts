@@ -157,6 +157,42 @@ export interface WorkOrderLine {
   qty: number;
   remarks: string | null;
   customer_ref: string | null; // snapshot of the Item Master's, editable per line (006)
+  short_closed_qty: number; // 025: units written off by a scrap / re-produce decision; the line's required quantity is qty minus this
+  replaces_line_id: string | null; // 025: set on a replacement line made by a re-produce decision
+}
+
+export interface QcRejectReason {
+  id: string;
+  name: string;
+  is_active: boolean;
+}
+
+// 025: units QC (or the Planner, at production) rejected. Finance/MD decide scrap or re-produce, per quantity.
+export interface QcRejection {
+  id: string;
+  work_order_line_id: string;
+  source: 'qc' | 'production';
+  qc_inspection_id: string | null;
+  qty: number;
+  reason_id: string;
+  comment: string | null;
+  unit_weight_g: number | null;
+  status: 'awaiting_decision' | 'decided' | 'withdrawn';
+  recorded_by: string | null;
+  recorded_at: string;
+}
+
+export interface QcRejectionDecision {
+  id: string;
+  rejection_id: string;
+  action: 'scrap' | 'reproduce';
+  qty: number;
+  note: string;
+  replacement_line_id: string | null;
+  new_price: number | null;
+  new_delivery_date: string | null;
+  decided_by: string | null;
+  decided_at: string;
 }
 
 // What the customer is charged per unit (018). Its own table because only Creator, MD, Admin and Finance may
