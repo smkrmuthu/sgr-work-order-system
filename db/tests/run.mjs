@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql', '024_item_weight_limits.sql', '025_qc_rejections.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql', '024_item_weight_limits.sql', '025_qc_rejections.sql', '026_shift_notes.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -1001,5 +1001,25 @@ await as(FINANCE, () => db.query(`select app.decide_rejection($1, 'scrap', 10, '
 await rjSend(R3.lineId); await rjInspect(R3.lineId, 40);
 ok((await rjStatus(R3.woId)).status === 'ready_for_dispatch', 'after scrapping the 10 over-weight units, 40 accepted completes the order (50 ordered, 40 required)');
 ok((await as(PLANNER, () => db.query(`select 1 from app.qc_rejections`))).rows.length >= 3, 'everyone signed in can read rejections');
+
+
+// ---------------------------------------------------------------- shift notes on a production entry (026)
+const SN = await rjOrder(30);
+const snEntry = (await as(PLANNER, () => db.query(`select app.record_production($1) as id`, [JSON.stringify({
+  work_order_id: SN.woId, shift_id: sdShift, supervisor_id: SUPERVISOR, labour_count: 3,
+  notes: ['Machine 2 down for 40 min', '  ', { text: 'New operator on the line' }, 'Glue batch changed'],
+  lines: [{ work_order_line_id: SN.lineId, qty: 5, unit_weight_g: 1 }] })]))).rows[0].id;
+const snRows = (await as(QC, () => db.query(`select position, note from app.production_entry_notes where production_entry_id=$1 order by position`, [snEntry]))).rows;
+ok(snRows.length === 3 && snRows[0].note === 'Machine 2 down for 40 min' && snRows[1].note === 'New operator on the line' && snRows[2].position === 3,
+   'shift notes are saved as separate points in order, blanks dropped, strings or {text}: ' + JSON.stringify(snRows.map((r) => [r.position, r.note])));
+const snNone = (await as(PLANNER, () => db.query(`select app.record_production($1) as id`, [JSON.stringify({
+  work_order_id: SN.woId, shift_id: sdShift, supervisor_id: SUPERVISOR, labour_count: 3, lines: [{ work_order_line_id: SN.lineId, qty: 5, unit_weight_g: 1 }] })]))).rows[0].id;
+ok((await db.query(`select count(*)::int n from app.production_entry_notes where production_entry_id=$1`, [snNone])).rows[0].n === 0, 'an entry without notes is fine');
+ok(/row-level security|permission denied/.test(await expectErr(() => as(QC, () => db.query(`insert into app.production_entry_notes (production_entry_id, position, note) values ($1, 9, 'x')`, [snEntry]))) || ''), 'only Planner/MD/Admin can add shift notes');
+const snEdit = await as(MD, () => db.query(`update app.production_entry_notes set note='changed' where production_entry_id=$1 returning id`, [snEntry]));
+ok(snEdit.rows.length === 0, 'shift notes cannot be edited afterwards');
+ok(/check constraint/.test(await expectErr(() => as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
+  work_order_id: SN.woId, shift_id: sdShift, supervisor_id: SUPERVISOR, labour_count: 3, notes: ['x'.repeat(501)], lines: [{ work_order_line_id: SN.lineId, qty: 1, unit_weight_g: 1 }] })]))) || ''), 'a single note is capped at 500 characters');
+ok(Number((await db.query(`select coalesce(sum(qty),0) q from app.production_output_lines where work_order_line_id=$1`, [SN.lineId])).rows[0].q) === 10, 'a refused entry (note too long) saves nothing at all');
 
 console.log('\nDone.');

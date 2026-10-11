@@ -24,6 +24,7 @@ export const BACKUP_TABLES = [
   'completion_date_changes',
   'finance_approvals',
   'production_entries',
+  'production_entry_notes',
   'production_output_lines',
   'qc_submissions',
   'qc_inspections',

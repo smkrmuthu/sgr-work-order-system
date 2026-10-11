@@ -14,6 +14,7 @@ interface LogEntry {
   supervisor?: { name: string } | null;
   planner?: { full_name: string | null } | null;
   production_output_lines?: { qty: number; actual_weight_kg: number }[];
+  production_entry_notes?: { position: number; note: string }[];
 }
 interface DateChange extends CompletionDateChange { by?: { full_name: string | null } | null }
 
@@ -42,6 +43,9 @@ export default function PlannerPage() {
   const [entryDate, setEntryDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [shiftId, setShiftId] = useState('');
   const [labour, setLabour] = useState('6');
+  // Shift notes: separate points, like a Work Order's Additional Notes.
+  const [shiftNotes, setShiftNotes] = useState<string[]>([]);
+  const [noteInput, setNoteInput] = useState('');
   const [entryValues, setEntryValues] = useState<Record<string, { qty: string; unitG: string; note: string }>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -87,7 +91,7 @@ export default function PlannerPage() {
   const loadHistory = useCallback(async (woId: string) => {
     const [{ data: entries }, { data: changes }] = await Promise.all([
       supabase.from('production_entries')
-        .select('id, production_date, created_at, labour_count, shift:shifts(name), supervisor:supervisors(name), planner:users(full_name), production_output_lines(qty, actual_weight_kg)')
+        .select('id, production_date, created_at, labour_count, shift:shifts(name), supervisor:supervisors(name), planner:users(full_name), production_output_lines(qty, actual_weight_kg), production_entry_notes(position, note)')
         .eq('work_order_id', woId).order('created_at', { ascending: false }),
       supabase.from('completion_date_changes').select('*, by:users(full_name)').eq('work_order_id', woId).order('changed_at', { ascending: false }),
     ]);
@@ -131,6 +135,13 @@ export default function PlannerPage() {
     loadLines(l.work_order_id);
   }
 
+  function addShiftNote() {
+    const text = noteInput.trim();
+    if (!text) return;
+    setShiftNotes((ns) => [...ns, text]);
+    setNoteInput('');
+  }
+
   async function submitEntry() {
     if (!selected) return;
     if (!supervisorId) { setError('Choose the Supervisor for this production entry.'); return; }
@@ -143,6 +154,7 @@ export default function PlannerPage() {
     setSubmitting(true); setError('');
     const payload = {
       work_order_id: selected.id, production_date: entryDate, shift_id: shiftId, supervisor_id: supervisorId, labour_count: Number(labour),
+      notes: (noteInput.trim() ? [...shiftNotes, noteInput.trim()] : shiftNotes).map((text) => ({ text })),
       lines: lines.filter((l) => entryValues[l.id]?.qty).map((l) => ({
         work_order_line_id: l.id, qty: Number(entryValues[l.id]!.qty),
         unit_weight_g: Number(entryValues[l.id]!.unitG), note: entryValues[l.id]!.note,
@@ -151,7 +163,7 @@ export default function PlannerPage() {
     const { error } = await supabase.rpc('record_production', { p: payload });
     setSubmitting(false);
     if (error) { setError(error.message); return; }
-    setEntryValues({});
+    setEntryValues({}); setShiftNotes([]); setNoteInput('');
     loadLines(selected.id); loadOrders(); loadHistory(selected.id);
   }
 
@@ -360,6 +372,25 @@ export default function PlannerPage() {
                   </div>
                 );
               })}
+              <div className="mt-4 max-w-2xl">
+                <label className="mb-1 block text-[11px] font-bold text-ink-700">Shift Notes</label>
+                <ol className="mb-2 flex flex-col gap-1.5">
+                  {shiftNotes.length === 0 && <li className="text-xs text-ink-300">No notes yet — add each point separately.</li>}
+                  {shiftNotes.map((n, i) => (
+                    <li key={i} className="flex items-start gap-2 rounded-md border border-kraft-200 bg-kraft-50 px-2.5 py-1.5 text-[12.5px]">
+                      <span className="mt-px font-mono text-[11px] font-bold text-ink-500">{i + 1}.</span>
+                      <span className="flex-1 break-words">{n}</span>
+                      <button type="button" onClick={() => setShiftNotes((ns) => ns.filter((_, j) => j !== i))} aria-label={`Remove note ${i + 1}`} className="text-ink-300 hover:text-rose-600">✕</button>
+                    </li>
+                  ))}
+                </ol>
+                <div className="flex gap-2">
+                  <input value={noteInput} onChange={(e) => setNoteInput(e.target.value)} maxLength={500}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addShiftNote(); } }}
+                    placeholder="Type a note and press Enter" className="input" />
+                  <button type="button" onClick={addShiftNote} disabled={!noteInput.trim()} className="btn-secondary whitespace-nowrap">+ Add note</button>
+                </div>
+              </div>
               <div className="mt-4 flex justify-end">
                 <button onClick={submitEntry} disabled={submitting} className="btn-primary">{submitting ? 'Saving…' : 'Save Daily Entry'}</button>
               </div>
@@ -371,10 +402,10 @@ export default function PlannerPage() {
             <div className="overflow-x-auto p-5">
               <table className="w-full text-xs">
                 <thead className="bg-kraft-100 text-left font-bold uppercase text-ink-900">
-                  <tr><th className="px-2 py-2">Date</th><th className="px-2 py-2">Shift</th><th className="px-2 py-2">Supervisor</th><th className="px-2 py-2">Labour</th><th className="px-2 py-2">Qty Produced</th><th className="px-2 py-2">Actual Weight (kg)</th><th className="px-2 py-2">Recorded by</th></tr>
+                  <tr><th className="px-2 py-2">Date</th><th className="px-2 py-2">Shift</th><th className="px-2 py-2">Supervisor</th><th className="px-2 py-2">Labour</th><th className="px-2 py-2">Qty Produced</th><th className="px-2 py-2">Actual Weight (kg)</th><th className="px-2 py-2">Shift notes</th><th className="px-2 py-2">Recorded by</th></tr>
                 </thead>
                 <tbody>
-                  {log.length === 0 && <tr><td colSpan={7} className="px-2 py-6 text-center text-ink-500">Nothing recorded yet.</td></tr>}
+                  {log.length === 0 && <tr><td colSpan={8} className="px-2 py-6 text-center text-ink-500">Nothing recorded yet.</td></tr>}
                   {log.map((e) => (
                     <tr key={e.id} className="border-t border-kraft-100">
                       <td className="px-2 py-2 font-mono">{e.production_date}</td>
@@ -383,6 +414,15 @@ export default function PlannerPage() {
                       <td className="px-2 py-2 font-mono">{e.labour_count ?? '—'}</td>
                       <td className="px-2 py-2 font-mono">{(e.production_output_lines ?? []).reduce((n, o) => n + Number(o.qty), 0)}</td>
                       <td className="px-2 py-2 font-mono">{(e.production_output_lines ?? []).reduce((n, o) => n + Number(o.actual_weight_kg || 0), 0).toFixed(2)}</td>
+                      <td className="px-2 py-2">
+                        {(e.production_entry_notes ?? []).length === 0 ? <span className="text-ink-300">—</span> : (
+                          <ol className="flex flex-col gap-0.5">
+                            {[...(e.production_entry_notes ?? [])].sort((a, b) => a.position - b.position).map((n) => (
+                              <li key={n.position}><span className="font-mono text-ink-500">{n.position}.</span> {n.note}</li>
+                            ))}
+                          </ol>
+                        )}
+                      </td>
                       <td className="px-2 py-2">{e.planner?.full_name ?? '—'} <span className="text-ink-500">· {new Date(e.created_at).toLocaleString('en-IN')}</span></td>
                     </tr>
                   ))}
