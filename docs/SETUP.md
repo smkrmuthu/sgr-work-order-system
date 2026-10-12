@@ -9,7 +9,7 @@ Project: `https://zuvmolgdmhbgqonzpjcg.supabase.co`
 
 ## 1. Run the migrations
 
-Open the Supabase dashboard → **SQL Editor** → New query, and run these thirteen
+Open the Supabase dashboard → **SQL Editor** → New query, and run these
 files **in order**, pasting each one's full contents and clicking Run:
 
 1. `db/migrations/001_schema.sql` — schema, enums, tables

@@ -1,5 +1,7 @@
 # SGR Work Order Management System
 
+> New here, or starting a fresh session? Read [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) first.
+
 Production Phase-1 build of SGR Moulds India's Work Order lifecycle — Work
 Order creation, MD edits/invoicing, Production Planner scheduling, and QC
 inspection — as a separate, versioned system from the earlier
@@ -31,8 +33,8 @@ sgr-work-order-system/
 │                        imports this same package and talks to the same
 │                        schema-qualified REST/RPC surface — no separate
 │                        API to build or version for it.
-├── db/migrations/       The database IS the API. Four idempotent SQL
-│                        files, run once in order (see docs/SETUP.md):
+├── db/migrations/       The database IS the API. Idempotent SQL
+│                        files 001–026, run in order (see docs/SETUP.md):
 │   001_schema.sql         tables, enums
 │   002_rls.sql            Row-Level Security — the real authorization
 │                           boundary, enforced by Postgres itself
