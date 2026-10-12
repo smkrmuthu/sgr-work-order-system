@@ -15,15 +15,21 @@ export default function FinancePage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  const [custPrice, setCustPrice] = useState<Map<string, number>>(new Map());
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
       .from('work_orders')
-      .select('*, partner:business_partners(*), work_order_lines(qty, final_price)')
+      .select('*, partner:business_partners(*), work_order_lines(id, qty, final_price)')
       .eq('status', 'pending_finance_approval')
       .order('created_at');
     if (error) { setError(error.message); return; }
     setRows(data ?? []);
+    // Customer Price sits in its own table (Finance/MD/Admin/Creator may read it), so it's fetched separately.
+    const lineIds = (data ?? []).flatMap((r) => ((r.work_order_lines ?? []) as { id: string }[]).map((l) => l.id));
+    if (!lineIds.length) { setCustPrice(new Map()); return; }
+    const { data: prices } = await supabase.from('work_order_line_prices').select('*').in('work_order_line_id', lineIds);
+    setCustPrice(new Map((prices ?? []).map((x) => [x.work_order_line_id as string, Number(x.customer_price)])));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -46,6 +52,12 @@ export default function FinancePage() {
     load();
   }
 
+  // Customer total = qty x the customer's per-unit price; null when no line has a customer price set.
+  const customerTotal = (r: Row): number | null => {
+    const ls = (r.work_order_lines ?? []) as (WorkOrderLine & { id: string })[];
+    if (!ls.some((l) => custPrice.has(l.id))) return null;
+    return ls.reduce((n, l) => n + Number(l.qty) * (custPrice.get(l.id) ?? 0), 0);
+  };
   const total = (r: Row) => (r.work_order_lines ?? []).reduce((n, l) => n + Number(l.qty) * Number(l.final_price), 0);
 
   return (
@@ -68,15 +80,16 @@ export default function FinancePage() {
               <th className="px-3 py-2">Vendor</th>
               <th className="px-3 py-2">Delivery Date</th>
               <th className="px-3 py-2 text-right">Order Value</th>
+              <th className="px-3 py-2 text-right">Customer Total Price</th>
               <th className="px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {rows === null && (
-              <tr><td colSpan={5} className="px-3 py-8 text-center text-ink-500">Loading…</td></tr>
+              <tr><td colSpan={6} className="px-3 py-8 text-center text-ink-500">Loading…</td></tr>
             )}
             {rows !== null && rows.length === 0 && (
-              <tr><td colSpan={5} className="px-3 py-8 text-center text-ink-500">Nothing is awaiting Finance approval.</td></tr>
+              <tr><td colSpan={6} className="px-3 py-8 text-center text-ink-500">Nothing is awaiting Finance approval.</td></tr>
             )}
             {rows?.map((r) => (
               <>
@@ -89,6 +102,9 @@ export default function FinancePage() {
                   <td className="px-3 py-2">{r.partner ? `${r.partner.code} — ${r.partner.name}` : '—'}</td>
                   <td className="px-3 py-2">{r.delivery_date ?? '—'}</td>
                   <td className="px-3 py-2 text-right font-mono">₹{total(r).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    {customerTotal(r) === null ? '—' : `₹${customerTotal(r)!.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     <div className="flex justify-end gap-2">
                       <button onClick={() => approve(r.id)} disabled={busyId === r.id} className="btn-primary !px-3 !py-1.5">
@@ -105,7 +121,7 @@ export default function FinancePage() {
                 </tr>
                 {rejectingId === r.id && (
                   <tr className="border-t border-kraft-100 bg-kraft-50">
-                    <td colSpan={5} className="px-3 py-3">
+                    <td colSpan={6} className="px-3 py-3">
                       <div className="flex items-center gap-2">
                         <input
                           autoFocus
