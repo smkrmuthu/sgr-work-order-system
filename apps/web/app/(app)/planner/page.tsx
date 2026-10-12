@@ -202,6 +202,17 @@ export default function PlannerPage() {
       {selected && (
         <>
           <section className="rounded-lg border border-kraft-200 bg-white p-5">
+            <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-kraft-100 pb-3">
+              <span className="text-xs font-bold text-ink-700">Planned Delivery Date:</span>
+              <span className="font-bold">{selected.delivery_date ?? '—'}</span>
+              {/* The date the Planner first committed to is the oldest change; every later one is a revision. */}
+              {dateChanges.length > 1 && selected.expected_completion_date && (
+                <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-bold text-amber-900">
+                  New Planned Date: <span className="font-mono">{selected.expected_completion_date}</span>
+                  <span className="font-normal"> (was {dateChanges[dateChanges.length - 1]!.to_date})</span>
+                </span>
+              )}
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-xs font-bold text-ink-700">Planned Completion Date:</span>
               {!editingDate ? (
