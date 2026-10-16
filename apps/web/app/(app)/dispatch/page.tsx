@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 
@@ -41,6 +42,7 @@ export default function DispatchPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(['work_orders', 'work_order_lines', 'qc_inspections', 'qc_rejections', 'invoices', 'invoice_lines'], load);
 
   async function dispatch(r: InvoiceRow) {
     if (!confirm(`Mark invoice ${r.invoice_number} as dispatched?\n\nThis records that the goods have left. It can't be undone.`)) return;

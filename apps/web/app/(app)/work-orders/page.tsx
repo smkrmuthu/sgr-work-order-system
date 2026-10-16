@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { STATUS_LABEL, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
@@ -18,6 +19,8 @@ export default function WorkOrdersPage() {
   const [q, setQ] = useState('');
   const [error, setError] = useState('');
   const [hasUnsaved, setHasUnsaved] = useState(false);
+  const [tick, setTick] = useState(0);
+  useLiveRefresh(['work_orders', 'work_order_lines'], () => setTick((t) => t + 1));
   // A new Work Order started but not yet created is kept by the form in sessionStorage (new/page.tsx).
   useEffect(() => {
     try { setHasUnsaved(!!sessionStorage.getItem('sgr.newWorkOrderForm')); } catch { /* ignore */ }
@@ -46,7 +49,7 @@ export default function WorkOrdersPage() {
       setRows(mapped);
     })();
     return () => { cancelled = true; };
-  }, [profile]);
+  }, [profile, tick]);
 
   // Where "Edit" goes: the Creator edits their own order on the full form until Finance approves it;
   // the MD/Admin edits any order from its page (quantities, prices, dates — each save opens a revision

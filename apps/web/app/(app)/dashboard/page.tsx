@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { STATUS_LABEL, STATUS_BADGE_CLASS, STATUS_ORDER } from '@/lib/statusLabels';
@@ -201,6 +202,7 @@ function MdDashboardPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+  useLiveRefresh(['work_orders', 'work_order_lines', 'production_output_lines', 'qc_submissions', 'qc_inspections', 'qc_rejections', 'invoices', 'status_history'], loadData);
 
   const currentYearMonth = useMemo(() => {
     const d = new Date();

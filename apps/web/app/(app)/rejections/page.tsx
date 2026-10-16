@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import type { QcRejection, QcRejectionDecision } from '@sgr/types';
@@ -45,6 +46,7 @@ export default function RejectionsPage() {
     setRows((data ?? []) as unknown as Row[]);
   }, []);
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(['qc_rejections', 'qc_rejection_decisions', 'qc_inspections', 'work_order_lines'], load);
 
   const open = useMemo(() => (rows ?? []).filter((r) => r.status === 'awaiting_decision'), [rows]);
   const done = useMemo(() => (rows ?? []).filter((r) => r.status === 'decided' || r.decisions.length > 0), [rows]);

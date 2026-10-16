@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { STATUS_LABEL, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
@@ -63,6 +64,7 @@ export default function FinishedGoodsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(['work_orders', 'work_order_lines', 'qc_inspections', 'qc_rejections', 'invoices', 'invoice_lines'], load);
 
   async function createInvoice(g: Group) {
     const rate = Number(gst[g.order.id] ?? '18'), type = supply[g.order.id] ?? 'intra';

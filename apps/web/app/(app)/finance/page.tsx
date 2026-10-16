@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import type { BusinessPartner, WorkOrder, WorkOrderLine } from '@sgr/types';
 
@@ -33,6 +34,7 @@ export default function FinancePage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useLiveRefresh(['work_orders', 'work_order_lines', 'work_order_line_prices', 'finance_approvals'], load);
 
   async function approve(id: string) {
     setBusyId(id); setError('');

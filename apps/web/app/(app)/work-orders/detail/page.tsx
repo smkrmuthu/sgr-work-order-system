@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { lineLengthM, fmtMeters, partLengthMm } from '@/lib/partLength';
 import { useAuth } from '@/lib/auth';
@@ -150,6 +151,10 @@ function WorkOrderDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+  // Not while the MD is editing: load() resets the edit boxes to the saved values and would erase their typing.
+  useLiveRefresh(['work_orders', 'work_order_lines', 'work_order_line_prices', 'work_order_notes', 'finance_approvals', 'status_history',
+    'qc_inspections', 'qc_rejections', 'qc_rejection_decisions', 'invoices', 'invoice_lines', 'work_order_revisions'],
+    () => { if (!editing) load(); });
 
   // Arriving from the list's "Edit" link (?edit=1): open the MD's edit mode straight away, once.
   useEffect(() => {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { STATUS_LABEL } from '@/lib/statusLabels';
 import type { WorkOrder, WorkOrderLine, Shift, Supervisor, CompletionDateChange, ProductionOutputLine, QcSubmission, QcRejectReason } from '@sgr/types';
@@ -103,6 +104,9 @@ export default function PlannerPage() {
   useEffect(() => { supabase.from('supervisors').select('*').eq('is_active', true).order('name').then(({ data }) => setSupervisors(data ?? [])); }, []);
   useEffect(() => { loadOrders(); supabase.from('shifts').select('*').order('code').then(({ data }) => { setShifts(data ?? []); if (data?.length) setShiftId(data[0]!.id); }); }, [loadOrders]);
   useEffect(() => { if (selectedId) { loadLines(selectedId); loadHistory(selectedId); } }, [selectedId, loadLines, loadHistory]);
+  // Typed-in entry values live in separate state, so a live refresh never wipes a half-filled production entry.
+  useLiveRefresh(['work_orders', 'work_order_lines', 'production_entries', 'production_output_lines', 'production_entry_notes', 'qc_submissions', 'qc_rejections', 'qc_rejection_decisions', 'completion_date_changes'],
+    () => { loadOrders(); if (selectedId) { loadLines(selectedId); loadHistory(selectedId); } });
 
   // Weight of one unit is typed in grams. It is required, and may not be more than 15% above the part's standard
   // weight (the database enforces the same rule). Returns a message, or null when fine.

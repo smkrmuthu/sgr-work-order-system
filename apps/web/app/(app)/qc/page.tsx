@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { QC_ACCEPT, QC_MAX_BYTES, checkQcFile, uploadQcFile } from '@/lib/qcFiles';
@@ -72,6 +73,8 @@ export default function QcPage() {
 
   useEffect(() => { loadOrders(); supabase.from('qc_reject_reasons').select('*').eq('is_active', true).order('name').then(({ data }) => setReasons(data ?? [])); }, [loadOrders]);
   useEffect(() => { if (selectedId) loadLines(selectedId); setInspectingId(null); }, [selectedId, loadLines]);
+  useLiveRefresh(['work_orders', 'work_order_lines', 'production_output_lines', 'qc_submissions', 'qc_inspections', 'qc_rejections', 'qc_rejection_decisions'],
+    () => { loadOrders(); if (selectedId) loadLines(selectedId); });
 
   function startInspect(l: LineRow) {
     setInspectingId(l.id);

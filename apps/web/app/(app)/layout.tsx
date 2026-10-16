@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import logo from '@/assets/sgr-logo.png';
 import type { UserRole } from '@sgr/types';
@@ -52,13 +53,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // How many rejected quantities wait for a Finance/MD decision (shown as a badge on the Rejections tab).
   const [pendingRej, setPendingRej] = useState(0);
   const canDecideRej = profile?.role === 'finance' || profile?.role === 'md' || profile?.role === 'admin';
+  const [rejTick, setRejTick] = useState(0);
+  useLiveRefresh(['qc_rejections', 'qc_rejection_decisions'], () => setRejTick((t) => t + 1), canDecideRej);
   useEffect(() => {
     if (!canDecideRej) return;
     let cancelled = false;
     supabase.from('qc_rejections').select('id', { count: 'exact', head: true }).eq('status', 'awaiting_decision')
       .then(({ count }) => { if (!cancelled) setPendingRej(count ?? 0); });
     return () => { cancelled = true; };
-  }, [canDecideRej, pathname]);
+  }, [canDecideRej, pathname, rejTick]);
 
   // Close mobile menu on route change
   useEffect(() => {
