@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import logo from '@/assets/sgr-logo.png';
+import { NavIcon, type NavIconName } from '@/lib/navIcons';
 import type { UserRole } from '@sgr/types';
 
 const ROLE_LABEL: Record<UserRole, string> = {
@@ -19,21 +20,34 @@ const ROLE_LABEL: Record<UserRole, string> = {
   admin: 'System Administrator',
 };
 
-// Which roles see each nav tab. Hiding it is a convenience only — every table and RPC behind these
-// screens is independently enforced by RLS (db/migrations/002_rls.sql), never by this list alone.
-const NAV: { href: string; label: string; roles: UserRole[] }[] = [
-  { href: '/dashboard', label: 'Dashboard', roles: ['md', 'admin', 'planner'] },
-  { href: '/work-orders', label: 'Work Orders', roles: ['creator', 'md', 'finance', 'admin'] },
-  { href: '/finance', label: 'Finance Approval', roles: ['finance', 'md', 'admin'] },
-  { href: '/planner', label: 'Production Planner', roles: ['planner', 'md', 'admin'] },
-  { href: '/qc', label: 'QC', roles: ['qc', 'md', 'admin'] },
-  { href: '/rejections', label: 'Rejections', roles: ['finance', 'md', 'admin', 'qc'] },
-  { href: '/finished-goods', label: 'Finished Goods', roles: ['md', 'admin', 'finance', 'planner', 'qc'] },
-  { href: '/dispatch', label: 'Ready for Dispatch', roles: ['md', 'admin', 'finance', 'planner', 'qc'] },
-  { href: '/users', label: 'Users', roles: ['md', 'admin'] },
-  { href: '/backup', label: 'DB Backup', roles: ['md', 'admin'] },
-  { href: '/item-master', label: 'Item Master', roles: ['creator', 'md', 'admin'] },
-  { href: '/vendor-master', label: 'Vendor Master', roles: ['creator', 'md', 'admin'] },
+// The side menu, in groups. Which roles see each item: hiding it is a convenience only — every table and RPC
+// behind these screens is independently enforced by RLS (db/migrations/002_rls.sql), never by this list alone.
+type NavItem = { href: string; label: string; icon: NavIconName; roles: UserRole[] };
+const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
+  { title: 'Overview', items: [
+    { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles: ['md', 'admin', 'planner'] },
+  ] },
+  { title: 'Orders', items: [
+    { href: '/work-orders', label: 'Work Orders', icon: 'workOrders', roles: ['creator', 'md', 'finance', 'admin'] },
+    { href: '/finance', label: 'Finance Approval', icon: 'finance', roles: ['finance', 'md', 'admin'] },
+  ] },
+  { title: 'Production & Quality', items: [
+    { href: '/planner', label: 'Production Planner', icon: 'planner', roles: ['planner', 'md', 'admin'] },
+    { href: '/qc', label: 'QC', icon: 'qc', roles: ['qc', 'md', 'admin'] },
+    { href: '/rejections', label: 'Rejections', icon: 'rejections', roles: ['finance', 'md', 'admin', 'qc'] },
+  ] },
+  { title: 'Stock & Dispatch', items: [
+    { href: '/finished-goods', label: 'Finished Goods', icon: 'finishedGoods', roles: ['md', 'admin', 'finance', 'planner', 'qc'] },
+    { href: '/dispatch', label: 'Ready for Dispatch', icon: 'dispatch', roles: ['md', 'admin', 'finance', 'planner', 'qc'] },
+  ] },
+  { title: 'Masters', items: [
+    { href: '/item-master', label: 'Item Master', icon: 'itemMaster', roles: ['creator', 'md', 'admin'] },
+    { href: '/vendor-master', label: 'Vendor Master', icon: 'vendorMaster', roles: ['creator', 'md', 'admin'] },
+  ] },
+  { title: 'Administration', items: [
+    { href: '/users', label: 'Users', icon: 'users', roles: ['md', 'admin'] },
+    { href: '/backup', label: 'DB Backup', icon: 'backup', roles: ['md', 'admin'] },
+  ] },
 ];
 
 // Where each role starts: Planner has a Dashboard, QC goes straight to its inspection queue, MD/Admin to theirs.
@@ -72,7 +86,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const role = profile?.role ?? 'creator';
   const initials = (profile?.full_name ?? profile?.email ?? '??').slice(0, 2).toUpperCase();
-  const userNav = NAV.filter((n) => n.roles.includes(role));
+  const groups = NAV_GROUPS
+    .map((g) => ({ ...g, items: g.items.filter((n) => n.roles.includes(role)) }))
+    .filter((g) => g.items.length > 0);
+  const isActive = (href: string) => pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
+  // The grouped menu, shared by the desktop sidebar and the mobile drawer.
+  const menu = (
+    <div className="flex flex-col gap-4">
+      {groups.map((g) => (
+        <div key={g.title}>
+          <div className="mb-1 px-3 text-[10px] font-bold uppercase tracking-widest text-forest-400">{g.title}</div>
+          <div className="flex flex-col gap-0.5">
+            {g.items.map((n) => (
+              <Link key={n.href} href={n.href}
+                className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-semibold transition-colors ${
+                  isActive(n.href) ? 'bg-forest-700 text-white shadow-[inset_3px_0_0_var(--color-kraft-300)]' : 'text-forest-200 hover:bg-forest-800 hover:text-white'
+                }`}>
+                <NavIcon name={n.icon} />
+                <span className="flex-1">{n.label}</span>
+                {n.href === '/rejections' && pendingRej > 0 && <span className="rounded-full bg-amber-400 px-1.5 py-px text-[10px] font-bold text-forest-950">{pendingRej}</span>}
+              </Link>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
   if (profile && !profile.is_active) {
     return (
@@ -135,30 +174,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Desktop & Tablet Horizontal Swipeable Nav Bar */}
-        <nav className="border-t border-forest-700 bg-forest-800 overflow-x-auto no-scrollbar touch-scroll">
-          <div className="mx-auto flex max-w-6xl gap-1 px-4 sm:px-6 lg:px-7 whitespace-nowrap min-w-max">
-            {userNav.map((n) => {
-              const active = pathname === n.href || (n.href !== '/dashboard' && pathname.startsWith(n.href));
-              return (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  className={`border-b-2 px-3 py-2 text-xs font-bold tracking-wide transition-colors ${
-                    active ? 'border-forest-300 text-white bg-forest-700/50' : 'border-transparent text-forest-300 hover:text-white'
-                  }`}
-                >
-                  {n.label.toUpperCase()}
-                  {n.href === '/rejections' && pendingRej > 0 && <span className="ml-1.5 rounded-full bg-amber-400 px-1.5 py-px text-[10px] font-bold text-forest-950">{pendingRej}</span>}
-                </Link>
-              );
-            })}
-          </div>
-        </nav>
-
         {/* Mobile Dropdown Drawer */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-forest-700 bg-forest-900 px-4 py-3 shadow-xl">
+          <div className="md:hidden max-h-[calc(100vh-56px)] overflow-y-auto border-t border-forest-700 bg-forest-900 px-4 py-3 shadow-xl">
             <div className="mb-2.5 pb-2 border-b border-forest-800 flex items-center justify-between">
               <span className="text-xs font-bold text-forest-300">Signed in as {ROLE_LABEL[role]}</span>
               <button
@@ -168,28 +186,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 Sign out
               </button>
             </div>
-            <div className="flex flex-col gap-1">
-              {userNav.map((n) => {
-                const active = pathname === n.href || (n.href !== '/dashboard' && pathname.startsWith(n.href));
-                return (
-                  <Link
-                    key={n.href}
-                    href={n.href}
-                    className={`flex items-center justify-between rounded-md px-3 py-2.5 text-xs font-bold transition-colors ${
-                      active ? 'bg-forest-700 text-white' : 'text-forest-200 hover:bg-forest-800 hover:text-white'
-                    }`}
-                  >
-                    <span>{n.label}{n.href === '/rejections' && pendingRej > 0 && <span className="ml-2 rounded-full bg-amber-400 px-1.5 py-px text-[10px] font-bold text-forest-950">{pendingRej}</span>}</span>
-                    <span className="text-forest-400">→</span>
-                  </Link>
-                );
-              })}
-            </div>
+            {menu}
           </div>
         )}
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-3 sm:px-6 lg:px-7 py-4 sm:py-6">{children}</main>
+      <div className="flex flex-1">
+        {/* Desktop & tablet side menu */}
+        <aside className="no-print sticky top-[60px] hidden h-[calc(100vh-60px)] w-60 shrink-0 overflow-y-auto border-r border-forest-800 bg-forest-900 px-3 py-4 md:block">
+          {menu}
+        </aside>
+        <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-3 sm:px-6 lg:px-7 py-4 sm:py-6">{children}</main>
+      </div>
     </div>
   );
 }
