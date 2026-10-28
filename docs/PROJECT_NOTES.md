@@ -2,7 +2,7 @@
 
 A hand-off for anyone (a person, or a Claude session on another computer) picking this project up. It says what the
 system is, how it is deployed, the rules that were agreed with the owner, and what is still open. The README covers
-the architecture; `docs/SETUP.md` lists every migration in order. Last updated: 12 Oct 2026.
+the architecture; `docs/SETUP.md` lists every migration in order. Last updated: 28 Oct 2026 (migrations 001–027).
 
 **Never put passwords, API keys or the Supabase `service_role` key in this repo or in chat.** The service key lives
 only in the GitHub Actions secret `SUPABASE_SERVICE_ROLE_KEY` (used by the nightly backup) and the Edge Function's
@@ -33,7 +33,8 @@ npm install
 npm run dev          # local site
 npm run typecheck
 npm run build        # must pass before pushing
-npm run db:test      # runs EVERY migration against an embedded Postgres (PGlite) and checks the rules (255+ checks)
+npm run db:test      # runs EVERY migration against an embedded Postgres (PGlite) and checks the rules (260+ checks)
+npm run db:combine   # regenerates db/all_migrations_combined.sql after adding a migration
 ```
 
 **The owner also commits straight to GitHub** (Vendor Master, Sales Persons and others). Always `git pull` first.
@@ -45,6 +46,8 @@ npm run db:test      # runs EVERY migration against an embedded Postgres (PGlite
 - When a function changes, the new migration restates the **whole latest body** of the function (copy from the last
   file that defined it) and keeps every earlier safeguard. Check `grep -n "create or replace function app.<name>"`.
 - Add the new file to the `MIGRATIONS` list in `db/tests/run.mjs`, add tests for the rule, and a line to `docs/SETUP.md`.
+- Run `npm run db:combine` and commit `db/all_migrations_combined.sql` (all migrations in one paste-able script for a fresh
+  database). It is generated, never hand-edited, and `npm run db:test` fails if it is out of date.
 - New tables: enable RLS (a test fails if any app table lacks it), give `authenticated` only what it needs, and add the
   table to the allow-list in `app.export_table` plus `apps/web/lib/backup.ts` and `scripts/db-backup.mjs`.
 - Hiding a button is not access control. Anything sensitive is enforced in the database (RLS, or a `security definer`
