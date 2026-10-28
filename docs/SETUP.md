@@ -97,6 +97,11 @@ files **in order**, pasting each one's full contents and clicking Run:
     are never billed and an order completes on what is still required
 24. `db/migrations/026_shift_notes.sql` — shift notes on a production entry,
     written as separate points like a Work Order's Additional Notes
+25. `db/migrations/027_realtime.sql` — live updates (Supabase Realtime)
+26. `db/migrations/028_delivery_challan.sql` — the Delivery Challan replaces
+    the Invoice: Finished Goods creates a price-free challan (DC number,
+    quantities only, no GST); signed-in users can no longer create a tax
+    invoice. Old invoices stay viewable (price roles only)
 
 All of them are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.

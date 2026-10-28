@@ -392,9 +392,9 @@ function MdDashboardPage() {
       {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{error}</div>}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Tile label="Invoiced Revenue" value={formatCompact(stats.totalBilledRevenue)} hint={`${scopedInvoices.length} invoice(s) · GST ${formatCompact(stats.totalTaxCollected)}`} />
-        <Tile label="Unbilled Finished Goods" value={formatCompact(stats.totalUnbilledValue)} hint={`${stats.totalUnbilledQty} unit(s) approved`} href="/finished-goods" />
-        <Tile label="Pending Dispatch" value={formatCompact(stats.pendingDispatchValue)} hint={`${stats.pendingDispatchInvoices.length} invoice(s) waiting`} href="/dispatch" />
+        <Tile label="Delivered Value" value={formatCompact(stats.totalBilledRevenue)} hint={`${scopedInvoices.length} challan/invoice(s) · before GST on challans`} />
+        <Tile label="Awaiting Challan" value={formatCompact(stats.totalUnbilledValue)} hint={`${stats.totalUnbilledQty} unit(s) approved`} href="/finished-goods" />
+        <Tile label="Pending Dispatch" value={formatCompact(stats.pendingDispatchValue)} hint={`${stats.pendingDispatchInvoices.length} challan(s) waiting`} href="/dispatch" />
         <Tile label="Active Orders" value={`${stats.activeOrders} / ${stats.totalOrders}`} hint={`${stats.inProduction} in production · ${stats.completedOrders} completed`} />
         <Tile label="Needs Approval" value={String(stats.pendingApproval.length)} hint="Awaiting Finance / MD" href="/finance" />
         <Tile label="QC Pass Rate" value={`${stats.qcPassRate}%`} hint={`${stats.totalAcceptedQty} accepted · ${stats.totalHeldQty} held`} />
@@ -412,12 +412,12 @@ function MdDashboardPage() {
             rows={stats.pendingApproval.slice(0, 3).map((wo) => ({ id: wo.id, main: wo.wo_number ?? '(draft)', sub: `${wo.partner?.name ?? 'Customer'} · ${formatRupees(wo.orderTotal ?? 0)}` }))}
           />
           <AttentionColumn
-            title="QC Approved, Ready to Bill" count={stats.finishedGoodsReady.length} href="/finished-goods" cta="Bill"
+            title="QC Approved, Needs a Challan" count={stats.finishedGoodsReady.length} href="/finished-goods" cta="Create Challan"
             badgeClass="border-amber-200 bg-amber-50 text-amber-800" empty="Nothing unbilled."
             rows={stats.finishedGoodsReady.slice(0, 3).map((wo) => ({ id: wo.id, main: wo.wo_number ?? '(draft)', sub: `${wo.unbilledAcceptedQty} pc(s) · ${formatRupees(wo.unbilledValue ?? 0)}` }))}
           />
           <AttentionColumn
-            title="Invoices Awaiting Dispatch" count={stats.pendingDispatchInvoices.length} href="/dispatch" cta="Dispatch"
+            title="Challans Awaiting Dispatch" count={stats.pendingDispatchInvoices.length} href="/dispatch" cta="Dispatch"
             badgeClass="border-blue-200 bg-blue-50 text-blue-800" empty="Everything billed has shipped."
             rows={stats.pendingDispatchInvoices.slice(0, 3).map((inv) => ({ id: inv.id, main: inv.invoice_number, sub: formatRupees(Number(inv.grand_total)) }))}
           />

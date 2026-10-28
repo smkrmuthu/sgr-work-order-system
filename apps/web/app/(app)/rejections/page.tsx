@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+import { canSeePrices } from '@/lib/priceAccess';
 import type { QcRejection, QcRejectionDecision } from '@sgr/types';
 
 // Units QC (or the Planner, at production) rejected. Finance and the MD decide, per quantity:
@@ -82,6 +83,8 @@ export default function RejectionsPage() {
 }
 
 function RejectionCard({ r, canDecide, onError, onDone }: { r: Row; canDecide: boolean; onError: (m: string) => void; onDone: (m: string) => void }) {
+  const { profile } = useAuth();
+  const showPrices = canSeePrices(profile?.role);   // QC sees what was decided, but never a price
   const decidedQty = r.decisions.reduce((n, d) => n + Number(d.qty), 0);
   const openQty = Number(r.qty) - decidedQty;
   const wo = r.line?.work_order;
@@ -141,7 +144,7 @@ function RejectionCard({ r, canDecide, onError, onDone }: { r: Row; canDecide: b
           {r.decisions.map((d) => (
             <li key={d.id}>
               <b>{d.action === 'scrap' ? `Scrapped ${d.qty}` : `Re-produce ${d.qty}`}</b>
-              {d.action === 'reproduce' && <> · replacement line {d.replacement?.line_no ?? '—'}{d.new_price != null ? ` at ₹${Number(d.new_price).toFixed(2)}` : ''}{d.new_delivery_date ? ` · new delivery date ${d.new_delivery_date}` : ''}</>}
+              {d.action === 'reproduce' && <> · replacement line {d.replacement?.line_no ?? '—'}{showPrices && d.new_price != null ? ` at ₹${Number(d.new_price).toFixed(2)}` : ''}{d.new_delivery_date ? ` · new delivery date ${d.new_delivery_date}` : ''}</>}
               {' '}— {d.note}
               <span className="text-ink-500"> · {d.decider?.full_name ?? d.decider?.email ?? 'Unknown'}, {fmtDate(d.decided_at)}</span>
             </li>

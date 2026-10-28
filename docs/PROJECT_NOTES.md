@@ -106,8 +106,15 @@ Rejected units wait in the Rejections queue. **Finance or the MD** (either one) 
 - The Planner can reject over-weight units at production instead of being blocked; they go to the same queue.
 - QC can withdraw a rejection only until someone has decided on it. Decisions are permanent.
 
-**Billing:** only QC-accepted, not-yet-invoiced units; never rejected or scrapped ones. An order completes when
-everything still required is billed and dispatched.
+**Delivery Challan (replaced the invoice, migration 028):** Finished Goods creates a numbered, price-free Delivery Challan
+(MD/Admin only) for QC-accepted units not yet on a document; it then waits in Ready for Dispatch. Rejected or scrapped
+units are never on a challan. An order completes when everything still required is on a dispatched challan. Tax
+invoices are raised outside the app; old invoices stay viewable by price roles. Challans live in the `invoices` tables
+(`kind = 'challan'`) and still record the goods' value for the MD's dashboard, but never display it.
+
+**Prices on screen:** Production (Planner) and QC logins see no price anywhere (order page columns, Finished Goods,
+Dispatch, Rejections). This is a display rule (`apps/web/lib/priceAccess.ts`); only Customer Price is withheld by the
+database. Making all prices database-level is possible but needs prices moved out of the order-line table.
 
 ## 5. Gotchas learned the hard way
 - Supabase fires the sign-in event again when a browser tab regains focus. `apps/web/lib/auth.tsx` must not treat a

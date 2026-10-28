@@ -1,4 +1,4 @@
-// Printed at the top of every invoice. Fill in the blanks below and they appear on the invoice automatically;
+// Printed at the top of every Delivery Challan (and old invoice). Fill in the blanks below and they appear automatically;
 // a blank is simply left out (nothing is invented).
 export const COMPANY = {
   name: 'SGR Moulds India Pvt Ltd',

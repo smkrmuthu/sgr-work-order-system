@@ -296,7 +296,8 @@ export interface Attachment {
 export interface Invoice {
   id: string;
   work_order_id: string;
-  invoice_number: string;
+  kind: 'invoice' | 'challan'; // 028: new documents are price-free Delivery Challans; older ones stay invoices
+  invoice_number: string; // DC/<year>/<n> for a challan, INV/<year>/<n> for an old invoice
   invoice_date: string;
   gst_rate: number;
   supply_type: SupplyType;

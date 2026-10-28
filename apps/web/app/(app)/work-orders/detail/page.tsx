@@ -9,6 +9,7 @@ import { lineLengthM, fmtMeters, partLengthMm } from '@/lib/partLength';
 import { useAuth } from '@/lib/auth';
 import { openQcFile } from '@/lib/qcFiles';
 import { openSalesFile } from '@/lib/salesOrderFiles';
+import { canSeePrices } from '@/lib/priceAccess';
 import { STATUS_LABEL, STATUS_ORDER, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type {
   WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
@@ -42,6 +43,7 @@ function WorkOrderDetail() {
   const isMd = profile?.role === 'md' || profile?.role === 'admin';
   // What the customer is charged: Creator, MD, Admin and Finance only (hidden for Planner / QC).
   const canSeeCustomerPrice = ['creator', 'md', 'admin', 'finance'].includes(profile?.role ?? '');
+  const showPrices = canSeePrices(profile?.role);   // Production and QC logins see no price on any screen
   const isFinance = profile?.role === 'finance' || profile?.role === 'md' || profile?.role === 'admin';
 
   const [wo, setWo] = useState<WorkOrder | null>(null);
@@ -79,8 +81,6 @@ function WorkOrderDetail() {
   const [lineEdits, setLineEdits] = useState<Record<string, { qty: string; final_price: string; customer_price: string }>>({});
   const [saving, setSaving] = useState(false);
 
-  const [gstRate, setGstRate] = useState('18');
-  const [supplyType, setSupplyType] = useState<'intra' | 'inter'>('intra');
   const [generating, setGenerating] = useState(false);
 
   const load = useCallback(async () => {
@@ -209,10 +209,10 @@ function WorkOrderDetail() {
     load();
   }
 
-  async function generateInvoice() {
+  async function generateChallan() {
     if (!wo) return;
     setGenerating(true); setError('');
-    const { error } = await supabase.rpc('generate_invoice', { p_work_order_id: wo.id, p_gst_rate: Number(gstRate), p_supply_type: supplyType });
+    const { error } = await supabase.rpc('generate_challan', { p_work_order_id: wo.id });
     setGenerating(false);
     if (error) { setError(error.message); return; }
     load();
@@ -254,7 +254,7 @@ function WorkOrderDetail() {
   // until Finance approves it. That form covers everything the MD's quick inline edit does.
   const ownerCanEditForm = wo.created_by === profile?.id && (wo.status === 'draft' || wo.status === 'pending_finance_approval');
 
-  // QC-approved but not yet invoiced, in units — the same sum the database uses when it creates an invoice.
+  // QC-approved but not yet on a delivery challan, in units — the same sum the database uses when it creates one.
   const billedByLine = new Map<string, number>();
   for (const inv of invoices) for (const il of inv.lines) if (il.work_order_line_id) billedByLine.set(il.work_order_line_id, (billedByLine.get(il.work_order_line_id) ?? 0) + Number(il.qty));
   const unbilledUnits = lines.reduce((n, l) => n + Math.max(0, l.qcApproved - (billedByLine.get(l.id) ?? 0)), 0);
@@ -423,8 +423,8 @@ function WorkOrderDetail() {
               <tr>
                 <th className="px-2 py-2">Part #</th><th className="px-2 py-2">Description</th><th className="px-2 py-2">Customer Ref</th>
                 <th className="px-2 py-2">Ordered</th><th className="px-2 py-2">Produced</th>
-                <th className="px-2 py-2">QC Approved</th><th className="px-2 py-2">Std Price</th>
-                <th className="px-2 py-2">Final Price</th><th className="px-2 py-2">Line Total</th>
+                <th className="px-2 py-2">QC Approved</th>{showPrices && <><th className="px-2 py-2">Std Price</th>
+                <th className="px-2 py-2">Final Price</th><th className="px-2 py-2">Line Total</th></>}
                 <th className="px-2 py-2">Total Length</th>{canSeeCustomerPrice && <><th className="px-2 py-2">Customer Price</th><th className="px-2 py-2">Customer Value</th></>}
               </tr>
             </thead>
@@ -445,13 +445,13 @@ function WorkOrderDetail() {
                   </td>
                   <td className="px-2 py-2 font-mono">{l.produced} / {l.qty}</td>
                   <td className="px-2 py-2 font-mono">{l.qcApproved} / {l.qty}{l.qcHeld > 0 && <span className="ml-1 rounded-full bg-amber-100 px-1.5 text-amber-800">{l.qcHeld} held</span>}</td>
-                  <td className="px-2 py-2 font-mono">₹{l.standard_price_snapshot.toFixed(2)}</td>
+                  {showPrices && <><td className="px-2 py-2 font-mono">₹{l.standard_price_snapshot.toFixed(2)}</td>
                   <td className="px-2 py-2 font-mono">
                     {editing && isMd ? (
                       <input value={lineEdits[l.id]?.final_price ?? ''} onChange={(e) => setLineEdits((s) => ({ ...s, [l.id]: { ...s[l.id]!, final_price: e.target.value } }))} className="input w-24 !py-1" />
                     ) : `₹${l.final_price.toFixed(2)}`}
                   </td>
-                  <td className="px-2 py-2 font-mono font-bold">₹{(live(l).qty * live(l).finalPrice).toLocaleString('en-IN')}</td>
+                  <td className="px-2 py-2 font-mono font-bold">₹{(live(l).qty * live(l).finalPrice).toLocaleString('en-IN')}</td></>}
                   <td className="px-2 py-2 font-mono">{partLengthMm(l.description_snapshot) != null ? fmtMeters(lineLengthM(l.description_snapshot, live(l).qty)) : '—'}</td>
                   {canSeeCustomerPrice && <><td className="px-2 py-2 font-mono">
                     {editing && isMd ? (
@@ -468,8 +468,8 @@ function WorkOrderDetail() {
                 <td className="px-2 py-2">{orderedTotal}</td>
                 <td className="px-2 py-2">{producedTotal}</td>
                 <td className="px-2 py-2">{qcTotal}</td>
-                <td colSpan={2} />
-                <td className="px-2 py-2">₹{finalValue.toLocaleString('en-IN')}</td>
+                {showPrices && <><td colSpan={2} />
+                <td className="px-2 py-2">₹{finalValue.toLocaleString('en-IN')}</td></>}
                 <td className="px-2 py-2">{fmtMeters(totalLengthM)}</td>
                 {canSeeCustomerPrice && <><td /><td className="px-2 py-2">₹{customerValue.toLocaleString('en-IN')}</td></>}
               </tr>
@@ -644,7 +644,7 @@ function WorkOrderDetail() {
 
       {(invoices.length > 0 || isMd) && (
         <section className="rounded-lg border border-kraft-200 bg-white">
-          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">INVOICES</div>
+          <div className="border-b border-kraft-100 px-5 py-3 text-sm font-bold text-forest-900">DELIVERY CHALLANS</div>
 
           {invoices.length > 0 && (
             <ul className="flex flex-col gap-1.5 p-5">
@@ -653,7 +653,7 @@ function WorkOrderDetail() {
                   <span>
                     <span className="font-mono font-bold">{inv.invoice_number}</span>
                     <span className="ml-3 text-ink-500">{new Date(inv.invoice_date).toLocaleDateString('en-GB')}</span>
-                    <span className="ml-3 font-mono font-bold">₹{Number(inv.grand_total).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    {inv.kind === 'invoice' && showPrices && <span className="ml-3 font-mono font-bold">₹{Number(inv.grand_total).toLocaleString('en-IN', { minimumFractionDigits: 2 })} <span className="font-sans text-[10px] font-normal text-ink-500">(earlier tax invoice)</span></span>}
                     <span className={`ml-3 rounded-full border px-2 py-0.5 text-[10px] font-bold ${inv.dispatched_at ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
                       {inv.dispatched_at ? 'Dispatched' : 'Ready for dispatch'}
                     </span>
@@ -664,31 +664,19 @@ function WorkOrderDetail() {
             </ul>
           )}
 
-          {/* Creating another invoice: only when QC-approved goods are still unbilled (same rule as Finished Goods). */}
+          {/* Creating another challan: only when QC-approved goods are not on one yet (same rule as Finished Goods). */}
           {isMd && (
             <div className={`p-5 ${invoices.length > 0 ? 'border-t border-kraft-100' : ''}`}>
               {unbilledUnits > 0 ? (
                 <>
                   <p className="mb-3 text-xs text-ink-700">
-                    <b>{unbilledUnits}</b> QC-approved unit(s) have not been billed yet. This creates one invoice for them.
+                    <b>{unbilledUnits}</b> QC-approved unit(s) are not on a delivery challan yet. This creates one challan for them.
                   </p>
-                  <div className="flex flex-wrap items-end gap-3">
-                    <Field label="GST Rate">
-                      <select value={gstRate} onChange={(e) => setGstRate(e.target.value)} className="input">
-                        <option value="18">18%</option><option value="12">12%</option><option value="5">5%</option><option value="0">0%</option>
-                      </select>
-                    </Field>
-                    <Field label="Supply Type">
-                      <select value={supplyType} onChange={(e) => setSupplyType(e.target.value as any)} className="input">
-                        <option value="intra">Intra-State (CGST+SGST)</option><option value="inter">Inter-State (IGST)</option>
-                      </select>
-                    </Field>
-                    <button onClick={generateInvoice} disabled={generating} className="btn-primary">{generating ? 'Generating…' : 'Create Invoice'}</button>
-                  </div>
+                  <button onClick={generateChallan} disabled={generating} className="btn-primary">{generating ? 'Creating…' : 'Create Delivery Challan'}</button>
                 </>
               ) : (
                 <p className="text-xs text-ink-500">
-                  {invoices.length > 0 ? 'Everything QC has approved so far has been invoiced.' : 'Nothing to bill yet — invoices can be created once QC approves goods.'}
+                  {invoices.length > 0 ? 'Everything QC has approved so far is on a delivery challan.' : 'Nothing to deliver yet — a delivery challan can be created once QC approves goods.'}
                 </p>
               )}
             </div>

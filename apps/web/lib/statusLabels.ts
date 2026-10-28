@@ -19,7 +19,7 @@ export const STATUS_LABEL: Record<WoStatus, string> = {
   in_production: 'In Production',
   qc_pending: 'QC Pending',
   partially_qc_approved: 'Partially QC Approved',
-  ready_for_dispatch: 'Finished Goods', // all ordered qty QC-approved; billing/dispatch are tracked per invoice (see the Dispatch tab)
+  ready_for_dispatch: 'Finished Goods', // all ordered qty QC-approved; delivery challans and dispatch are tracked per challan (see the Dispatch tab)
   completed: 'Completed / Closed',
   cancelled: 'Cancelled',
 };

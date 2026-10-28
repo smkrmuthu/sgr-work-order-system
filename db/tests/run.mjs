@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql', '024_item_weight_limits.sql', '025_qc_rejections.sql', '026_shift_notes.sql', '027_realtime.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql', '024_item_weight_limits.sql', '025_qc_rejections.sql', '026_shift_notes.sql', '027_realtime.sql', '028_delivery_challan.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -78,6 +78,9 @@ const as = async (userId, fn) => {
 const SUPERVISOR = (await db.query(`insert into app.supervisors (name, phone) values ('Test Supervisor', '9000000000') returning id`)).rows[0].id;
 // QC rejections need a reason (025); this is the default one used by older tests.
 const REASON_OTHER = (await db.query(`select id from app.qc_reject_reasons where name='Other'`)).rows[0].id;
+// Runs as the database owner but with `auth.uid()` set to this user: used for generate_invoice, which signed-in API users can
+// no longer call (028) but whose logic is still tested here.
+const asOwner = async (userId, fn) => { await db.exec(`reset role; select set_config('request.jwt.claim.sub','${userId}',false)`); return await fn(); };
 const asAnon = async (fn) => { await db.exec('set role anon'); try { return await fn(); } finally { await db.exec('reset role'); } };
 
 // ---------------------------------------------------------------- master data + RLS on it
@@ -280,10 +283,10 @@ try { await as(PLANNER, () => db.query(`select app.record_qc_inspection($1, 1, '
 ok(!!plannerInspect, 'Planner cannot record a QC inspection (' + plannerInspect + ')');
 
 let creatorInvoice = null;
-try { await as(CREATOR, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [draftId])); } catch (e) { creatorInvoice = e.message; }
+try { await asOwner(CREATOR, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [draftId])); } catch (e) { creatorInvoice = e.message; }
 ok(!!creatorInvoice, 'Creator cannot generate an invoice (' + creatorInvoice + ')');
 
-const invId = (await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra') as id`, [draftId]))).rows[0].id;
+const invId = (await asOwner(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra') as id`, [draftId]))).rows[0].id;
 const inv = (await as(CREATOR, () => db.query(`select * from app.invoices where id=$1`, [invId]))).rows[0];
 const invLines = (await as(CREATOR, () => db.query(`select * from app.invoice_lines where invoice_id=$1 order by description`, [invId]))).rows;
 // Line 1 (EB080600002, final_price MD-edited to 99.99): 600 produced, 600 QC-decided (500 accepted +
@@ -303,13 +306,13 @@ ok(/^INV\/\d{4}-\d{2}\/\d{4}$/.test(inv.invoice_number), 'invoice number format:
 // created2 (500 x p1): produce, send, and QC-approve it all so there is something to bill.
 const c2Line = (await as(CREATOR, () => db.query(`select id from app.work_order_lines where work_order_id=$1`, [created2.id]))).rows[0].id;
 let billBeforeQc = null;
-try { await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'inter')`, [created2.id])); } catch (e) { billBeforeQc = e.message; }
+try { await asOwner(MD, () => db.query(`select app.generate_invoice($1, 18, 'inter')`, [created2.id])); } catch (e) { billBeforeQc = e.message; }
 ok(/Nothing is ready to bill/.test(billBeforeQc || ''), 'an order with no QC-approved goods cannot be billed: ' + billBeforeQc);
 await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
   work_order_id: created2.id, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 4, lines: [{ work_order_line_id: c2Line, qty: 500, unit_weight_g: 1 }] })]));
 await as(PLANNER, () => db.query(`select app.send_line_to_qc($1)`, [c2Line]));
 await as(QC, () => db.query(`select app.record_qc_inspection($1, 500, 'all good')`, [c2Line]));
-const inv2Id = (await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'inter') as id`, [created2.id]))).rows[0].id;
+const inv2Id = (await asOwner(MD, () => db.query(`select app.generate_invoice($1, 18, 'inter') as id`, [created2.id]))).rows[0].id;
 const inv2 = (await as(CREATOR, () => db.query(`select * from app.invoices where id=$1`, [inv2Id]))).rows[0];
 ok(Number(inv2.igst) > 0 && Number(inv2.cgst) === 0 && Number(inv2.sgst) === 0, 'inter-state: IGST only: ' + JSON.stringify({cgst:inv2.cgst,igst:inv2.igst}));
 ok(inv2.invoice_number !== inv.invoice_number, 'a second invoice gets its own sequential number: ' + inv2.invoice_number);
@@ -336,7 +339,7 @@ ok(creatorRoleEdit.affectedRows === 0, 'Creator (not MD/Admin) cannot change ano
 // point every RLS policy and RBAC check in 002_rls.sql/003_functions.sql is built on.
 await as(ADMIN, () => db.query(`update app.users set is_active=false where id=$1`, [MD]));
 let deactivatedMdBlocked = null;
-try { await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [created2.id])); }
+try { await asOwner(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [created2.id])); }
 catch (e) { deactivatedMdBlocked = e.message; }
 ok(!!deactivatedMdBlocked, 'a deactivated MD is treated as roleless — an MD-only action is refused: ' + deactivatedMdBlocked);
 const deactivatedStillReads = await as(MD, () => db.query(`select 1 from app.work_orders where id=$1`, [draftId]));
@@ -489,7 +492,7 @@ ok(Number(fixedQty) === 6, 'a Creator can fix a rejected order and resubmit it')
 
 // ---------------------------------------------------------------- billing net of what is already billed, and dispatch (010)
 let doubleBill = null;
-try { await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [created2.id])); } catch (e) { doubleBill = e.message; }
+try { await asOwner(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [created2.id])); } catch (e) { doubleBill = e.message; }
 ok(/Nothing is ready to bill/.test(doubleBill || ''), 'the same goods cannot be billed twice: ' + doubleBill);
 
 // draftId line 1: 600 approved and billed above; produce + approve 400 more -> only those 400 are billable
@@ -497,12 +500,12 @@ await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.strin
   work_order_id: draftId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 4, lines: [{ work_order_line_id: lineIds[0].id, qty: 400, unit_weight_g: 1 }] })]));
 await as(PLANNER, () => db.query(`select app.send_line_to_qc($1)`, [lineIds[0].id]));
 await as(QC, () => db.query(`select app.record_qc_inspection($1, 400, 'second batch')`, [lineIds[0].id]));
-const inv3Id = (await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra') as id`, [draftId]))).rows[0].id;
+const inv3Id = (await asOwner(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra') as id`, [draftId]))).rows[0].id;
 const inv3Lines = (await as(CREATOR, () => db.query(`select qty from app.invoice_lines where invoice_id=$1`, [inv3Id]))).rows;
 ok(inv3Lines.length === 1 && Number(inv3Lines[0].qty) === 400, 'a later invoice bills only the newly approved 400, not the 600 already billed: ' + JSON.stringify(inv3Lines));
 
 let financeBill = null;
-try { await as(FINANCE, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [draftId])); } catch (e) { financeBill = e.message; }
+try { await asOwner(FINANCE, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [draftId])); } catch (e) { financeBill = e.message; }
 ok(/Only MD/.test(financeBill || ''), 'only MD/Admin create invoices: ' + financeBill);
 
 let plannerDispatch = null;
@@ -627,10 +630,10 @@ ok(/quantity greater than zero/.test(badQtyErr || ''), 'create_work_order reject
 
 // #9 generate_invoice now bounds the GST rate.
 let badGstErr = null;
-try { await as(MD, () => db.query(`select app.generate_invoice($1, -18, 'intra')`, [lockCheckDraft])); } catch (e) { badGstErr = e.message; }
+try { await asOwner(MD, () => db.query(`select app.generate_invoice($1, -18, 'intra')`, [lockCheckDraft])); } catch (e) { badGstErr = e.message; }
 ok(/GST rate must be between/.test(badGstErr || ''), 'generate_invoice rejects a negative GST rate: ' + badGstErr);
 let badGstErr2 = null;
-try { await as(MD, () => db.query(`select app.generate_invoice($1, 9999, 'intra')`, [lockCheckDraft])); } catch (e) { badGstErr2 = e.message; }
+try { await asOwner(MD, () => db.query(`select app.generate_invoice($1, 9999, 'intra')`, [lockCheckDraft])); } catch (e) { badGstErr2 = e.message; }
 ok(/GST rate must be between/.test(badGstErr2 || ''), 'generate_invoice rejects a GST rate above 100: ' + badGstErr2);
 
 // #7 save_draft's header write now also works for MD/Admin on someone else's draft (lines/notes already did).
@@ -974,15 +977,15 @@ const revSummaries = (await as(PLANNER, () => db.query(`select change_summary fr
 ok(/scrapped/.test(revSummaries) && /re-produced/.test(revSummaries) && /Remake the batch/.test(revSummaries), 'the revision history says what was decided and why: ' + revSummaries);
 
 // Billing: only the 60 accepted units, never the scrapped ones.
-await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]));
+await asOwner(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]));
 const billed1 = Number((await db.query(`select coalesce(sum(il.qty),0) q from app.invoice_lines il join app.invoices i on i.id=il.invoice_id where i.work_order_id=$1`, [R1.woId])).rows[0].q);
 ok(billed1 === 60, 'only the 60 accepted units are billed: ' + billed1);
-ok(/Nothing is ready to bill/.test(await expectErr(() => as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]))) || ''), 'the written-off units cannot be billed');
+ok(/Nothing is ready to bill/.test(await expectErr(() => asOwner(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]))) || ''), 'the written-off units cannot be billed');
 
 // The replacement is made, inspected and billed at its own price; the order then completes on the REQUIRED quantity (90).
 await rjProduce(R1.woId, repl.id, 30); await rjSend(repl.id); await rjInspect(repl.id, 30);
 ok((await rjStatus(R1.woId)).status === 'ready_for_dispatch', 'with 60 + 30 accepted against 90 required, the order is ready for dispatch');
-await as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]));
+await asOwner(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]));
 const replBilled = (await db.query(`select il.qty, il.price from app.invoice_lines il where il.work_order_line_id=$1`, [repl.id])).rows[0];
 ok(Number(replBilled.qty) === 30 && Number(replBilled.price) === 55, 'the replacement units are billed at the revised price: ' + JSON.stringify(replBilled));
 for (const inv of (await db.query(`select id from app.invoices where work_order_id=$1`, [R1.woId])).rows) await as(MD, () => db.query(`select app.mark_invoice_dispatched($1)`, [inv.id]));
@@ -1027,5 +1030,30 @@ ok(snEdit.rows.length === 0, 'shift notes cannot be edited afterwards');
 ok(/check constraint/.test(await expectErr(() => as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
   work_order_id: SN.woId, shift_id: sdShift, supervisor_id: SUPERVISOR, labour_count: 3, notes: ['x'.repeat(501)], lines: [{ work_order_line_id: SN.lineId, qty: 1, unit_weight_g: 1 }] })]))) || ''), 'a single note is capped at 500 characters');
 ok(Number((await db.query(`select coalesce(sum(qty),0) q from app.production_output_lines where work_order_line_id=$1`, [SN.lineId])).rows[0].q) === 10, 'a refused entry (note too long) saves nothing at all');
+
+
+// ---------------------------------------------------------------- Delivery Challan replaces the invoice (028)
+ok(/permission denied for function/.test(await expectErr(() => as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]))) || ''), 'signed-in users can no longer create a tax invoice from the app');
+const DC = await rjOrder(40);
+await rjProduce(DC.woId, DC.lineId, 40); await rjSend(DC.lineId);
+ok(/Nothing is ready to deliver/.test(await expectErr(() => as(MD, () => db.query(`select app.generate_challan($1)`, [DC.woId]))) || ''), 'no challan before QC has approved anything');
+await rjInspect(DC.lineId, 25, REASON_OVER);
+for (const [name, who] of [['Creator', CREATOR], ['Finance', FINANCE], ['Planner', PLANNER], ['QC', QC]]) {
+  ok(/Only MD or Admin/.test(await expectErr(() => as(who, () => db.query(`select app.generate_challan($1)`, [DC.woId]))) || ''), name + ' cannot create a delivery challan');
+}
+const dcId = (await as(MD, () => db.query(`select app.generate_challan($1) as id`, [DC.woId]))).rows[0].id;
+const dc = (await db.query(`select * from app.invoices where id=$1`, [dcId])).rows[0];
+ok(dc.kind === 'challan' && /^DC\/\d{4}-\d{2}\/\d{4}$/.test(dc.invoice_number) && Number(dc.gst_rate) === 0 && Number(dc.cgst) + Number(dc.sgst) + Number(dc.igst) === 0,
+   'a challan has its own DC number and no GST: ' + dc.invoice_number);
+const dcLines = (await db.query(`select qty from app.invoice_lines where invoice_id=$1`, [dcId])).rows;
+ok(dcLines.length === 1 && Number(dcLines[0].qty) === 25, 'it covers exactly the 25 QC-accepted units');
+ok(/Nothing is ready to deliver/.test(await expectErr(() => as(MD, () => db.query(`select app.generate_challan($1)`, [DC.woId]))) || ''), 'the same units cannot go on a second challan');
+const dc2Id = (await (async () => { await rjInspect(DC.lineId, 15); return as(MD, () => db.query(`select app.generate_challan($1) as id`, [DC.woId])); })()).rows[0].id;
+const dc2 = (await db.query(`select invoice_number from app.invoices where id=$1`, [dc2Id])).rows[0];
+ok(dc2.invoice_number !== dc.invoice_number, 'the next challan gets the next number: ' + dc2.invoice_number);
+ok((await db.query(`select count(*)::int n from app.invoices where kind='invoice'`)).rows[0].n >= 1, 'earlier invoices keep kind = invoice');
+await as(MD, () => db.query(`select app.mark_invoice_dispatched($1)`, [dcId]));
+await as(MD, () => db.query(`select app.mark_invoice_dispatched($1)`, [dc2Id]));
+ok((await rjStatus(DC.woId)).status === 'completed', 'dispatching the challans completes the order, as invoices did');
 
 console.log('\nDone.');

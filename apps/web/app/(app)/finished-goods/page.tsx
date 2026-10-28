@@ -8,16 +8,16 @@ import { useAuth } from '@/lib/auth';
 import { STATUS_LABEL, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type { BusinessPartner, WorkOrder, WorkOrderLine } from '@sgr/types';
 
-// Finished Goods = QC-approved goods that have not been billed yet. The MD/Admin creates the invoice here;
-// the goods then move to "Ready for Dispatch". What is billable per line is worked out by the database
-// (generate_invoice): QC-approved minus already invoiced — this page shows the same sum so the two agree.
+// Finished Goods = QC-approved goods that are not on a delivery challan yet. The MD/Admin creates the Delivery
+// Challan here (quantities only: no price, no GST); the goods then move to "Ready for Dispatch". What is still to
+// go per line is worked out by the database (generate_challan): QC-approved minus already on a challan/invoice —
+// this page shows the same sum so the two agree.
 
 type Order = WorkOrder & { partner?: BusinessPartner | null };
 interface BillLine extends WorkOrderLine { approved: number; billed: number; toBill: number }
-interface Group { order: Order; lines: BillLine[]; amount: number }
+interface Group { order: Order; lines: BillLine[] }
 
 const OPEN_STATUSES = ['in_production', 'qc_pending', 'partially_qc_approved', 'ready_for_dispatch'];
-const inr = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
 export default function FinishedGoodsPage() {
   const { profile } = useAuth();
@@ -26,8 +26,6 @@ export default function FinishedGoodsPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<{ text: string; invoiceId: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [gst, setGst] = useState<Record<string, string>>({});
-  const [supply, setSupply] = useState<Record<string, 'intra' | 'inter'>>({});
 
   const load = useCallback(async () => {
     const { data: orders, error: e1 } = await supabase
@@ -58,7 +56,7 @@ export default function FinishedGoodsPage() {
           return { ...l, approved, billed: b, toBill: approved - b };
         })
         .filter((l) => l.toBill > 0);
-      if (bl.length) out.push({ order, lines: bl, amount: bl.reduce((n, l) => n + l.toBill * Number(l.final_price), 0) });
+      if (bl.length) out.push({ order, lines: bl });
     }
     setGroups(out);
   }, []);
@@ -66,15 +64,15 @@ export default function FinishedGoodsPage() {
   useEffect(() => { load(); }, [load]);
   useLiveRefresh(['work_orders', 'work_order_lines', 'qc_inspections', 'qc_rejections', 'invoices', 'invoice_lines'], load);
 
-  async function createInvoice(g: Group) {
-    const rate = Number(gst[g.order.id] ?? '18'), type = supply[g.order.id] ?? 'intra';
-    if (!confirm(`Create an invoice for ${g.order.wo_number}?\n\n${g.lines.length} line(s) · ${inr(g.amount)} before GST @ ${rate}% (${type === 'intra' ? 'CGST + SGST' : 'IGST'}).\n\nThe goods then move to Ready for Dispatch.`)) return;
+  async function createChallan(g: Group) {
+    const units = g.lines.reduce((n, l) => n + l.toBill, 0);
+    if (!confirm(`Create a Delivery Challan for ${g.order.wo_number}?\n\n${g.lines.length} line(s) · ${units} unit(s).\n\nThe goods then move to Ready for Dispatch.`)) return;
     setBusyId(g.order.id); setError(''); setNotice(null);
-    const { data, error } = await supabase.rpc('generate_invoice', { p_work_order_id: g.order.id, p_gst_rate: rate, p_supply_type: type });
+    const { data, error } = await supabase.rpc('generate_challan', { p_work_order_id: g.order.id });
     setBusyId(null);
     if (error) { setError(error.message); return; }
     const { data: inv } = await supabase.from('invoices').select('invoice_number').eq('id', data as string).maybeSingle();
-    setNotice({ text: `Invoice ${inv?.invoice_number ?? ''} created for ${g.order.wo_number}. It is now under Ready for Dispatch.`, invoiceId: data as string });
+    setNotice({ text: `Delivery Challan ${inv?.invoice_number ?? ''} created for ${g.order.wo_number}. It is now under Ready for Dispatch.`, invoiceId: data as string });
     load();
   }
 
@@ -83,17 +81,17 @@ export default function FinishedGoodsPage() {
       <div>
         <h1 className="text-xl font-bold text-forest-900">Finished Goods</h1>
         <p className="text-sm text-ink-500">
-          QC-approved goods that have not been billed yet. {canBill ? 'Create the invoice against the order.' : 'MD or Admin creates the invoice.'}
+          QC-approved goods that are not on a delivery challan yet. {canBill ? 'Create the Delivery Challan against the order.' : 'MD or Admin creates the Delivery Challan.'}
         </p>
       </div>
 
       {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{error}</div>}
-      {notice && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{notice.text} <Link href={`/invoice?id=${notice.invoiceId}`} className="font-bold underline">View invoice</Link> · <Link href="/dispatch" className="font-bold underline">Ready for Dispatch →</Link></div>}
+      {notice && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{notice.text} <Link href={`/invoice?id=${notice.invoiceId}`} className="font-bold underline">View Delivery Challan</Link> · <Link href="/dispatch" className="font-bold underline">Ready for Dispatch →</Link></div>}
 
       {groups === null && <p className="text-sm text-ink-500">Loading…</p>}
       {groups?.length === 0 && (
         <div className="rounded-lg border border-kraft-200 bg-white px-5 py-10 text-center text-sm text-ink-500">
-          Nothing waiting to be billed. Goods appear here once QC approves them.
+          Nothing waiting for a Delivery Challan. Goods appear here once QC approves them.
         </div>
       )}
 
@@ -112,8 +110,7 @@ export default function FinishedGoodsPage() {
                 <tr>
                   <th className="px-2 py-2">Part #</th><th className="px-2 py-2">Description</th><th className="px-2 py-2">Customer Ref</th>
                   <th className="px-2 py-2 text-right">Ordered</th><th className="px-2 py-2 text-right">QC approved</th>
-                  <th className="px-2 py-2 text-right">Already billed</th><th className="px-2 py-2 text-right">To bill</th>
-                  <th className="px-2 py-2 text-right">Price</th><th className="px-2 py-2 text-right">Amount</th>
+                  <th className="px-2 py-2 text-right">Already on challan</th><th className="px-2 py-2 text-right">To deliver</th>
                 </tr>
               </thead>
               <tbody>
@@ -126,35 +123,21 @@ export default function FinishedGoodsPage() {
                     <td className="px-2 py-2 text-right font-mono">{l.approved}</td>
                     <td className="px-2 py-2 text-right font-mono">{l.billed}</td>
                     <td className="px-2 py-2 text-right font-mono font-bold">{l.toBill}</td>
-                    <td className="px-2 py-2 text-right font-mono">{inr(Number(l.final_price))}</td>
-                    <td className="px-2 py-2 text-right font-mono font-bold">{inr(l.toBill * Number(l.final_price))}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-kraft-300 bg-kraft-50 font-mono text-[11px] font-bold">
-                  <td className="px-2 py-2" colSpan={8}>TOTAL BEFORE GST</td>
-                  <td className="px-2 py-2 text-right">{inr(g.amount)}</td>
+                  <td className="px-2 py-2" colSpan={6}>TOTAL UNITS TO DELIVER</td>
+                  <td className="px-2 py-2 text-right">{g.lines.reduce((n, l) => n + l.toBill, 0)}</td>
                 </tr>
               </tfoot>
             </table>
 
             {canBill && (
-              <div className="mt-4 flex flex-wrap items-end justify-end gap-3">
-                <div>
-                  <label className="mb-1 block text-[11px] font-bold text-ink-700">GST rate</label>
-                  <select value={gst[g.order.id] ?? '18'} onChange={(e) => setGst((m) => ({ ...m, [g.order.id]: e.target.value }))} className="input">
-                    <option value="18">18%</option><option value="12">12%</option><option value="5">5%</option><option value="0">0%</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] font-bold text-ink-700">Supply type</label>
-                  <select value={supply[g.order.id] ?? 'intra'} onChange={(e) => setSupply((m) => ({ ...m, [g.order.id]: e.target.value as 'intra' | 'inter' }))} className="input">
-                    <option value="intra">Intra-State (CGST + SGST)</option><option value="inter">Inter-State (IGST)</option>
-                  </select>
-                </div>
-                <button onClick={() => createInvoice(g)} disabled={busyId === g.order.id} className="btn-primary">
-                  {busyId === g.order.id ? 'Creating…' : 'Create Invoice / Bill'}
+              <div className="mt-4 flex justify-end">
+                <button onClick={() => createChallan(g)} disabled={busyId === g.order.id} className="btn-primary">
+                  {busyId === g.order.id ? 'Creating…' : 'Create Delivery Challan'}
                 </button>
               </div>
             )}

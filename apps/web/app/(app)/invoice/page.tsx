@@ -5,11 +5,14 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { COMPANY } from '@/lib/company';
+import { useAuth } from '@/lib/auth';
+import { canSeePrices } from '@/lib/priceAccess';
 import { rupeesInWords } from '@/lib/rupees';
 import type { Invoice } from '@sgr/types';
 
-// A printable tax invoice (Print -> "Save as PDF" gives a PDF). A query-param route (?id=...), for the same
-// reason as the Work Order page: invoice ids only exist at runtime, and this is a static export.
+// A printable Delivery Challan (Print -> "Save as PDF" gives a PDF): quantities only, no price, no GST. Documents made
+// before the challan existed are tax invoices; those still open here, but only for roles allowed to see prices.
+// A query-param route (?id=...), for the same reason as the Work Order page: ids only exist at runtime (static export).
 
 interface Line { id: string; description: string; qty: number; price: number; amount: number;
   work_order_line: { part_no_snapshot: string; uom_snapshot: string; customer_ref: string | null } | null }
@@ -31,6 +34,7 @@ export default function InvoicePage() {
 
 function InvoiceView() {
   const id = useSearchParams().get('id') ?? '';
+  const { profile } = useAuth();
   const [inv, setInv] = useState<Full | null>(null);
   const [error, setError] = useState('');
 
@@ -42,13 +46,18 @@ function InvoiceView() {
                  work_order:work_orders(id, wo_number, doc_ref, wo_date, delivery_date, partner:business_partners(code, name, gstin), location:delivery_locations(label))`)
         .eq('id', id).maybeSingle();
       if (error) { setError(error.message); return; }
-      if (!data) { setError('Invoice not found.'); return; }
+      if (!data) { setError('Document not found.'); return; }
       setInv(data as unknown as Full);
     })();
   }, [id]);
 
   if (error) return <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>;
-  if (!inv) return <p className="text-sm text-ink-500">Loading…</p>;
+  if (!inv || !profile) return <p className="text-sm text-ink-500">Loading…</p>;
+  const isChallan = inv.kind === 'challan';
+  // An old tax invoice carries prices: not for Production / QC logins.
+  if (!isChallan && !canSeePrices(profile.role)) {
+    return <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This is a billing document and is not available for your login.</div>;
+  }
 
   const wo = inv.work_order;
   const tax = Number(inv.cgst) + Number(inv.sgst) + Number(inv.igst);
@@ -61,6 +70,7 @@ function InvoiceView() {
         <button onClick={() => window.print()} className="btn-primary">Print / Save as PDF</button>
       </div>
 
+      {isChallan ? <ChallanArticle inv={inv} /> : (
       <article className="mx-auto w-full max-w-4xl rounded-lg border border-kraft-200 bg-white p-8 text-[13px] print:border-0 print:p-0">
         <header className="flex items-start justify-between border-b-2 border-forest-900 pb-4">
           <div>
@@ -135,10 +145,77 @@ function InvoiceView() {
           <span className="border-t border-ink-300 px-6 pt-1 text-ink-700">Authorised signatory</span>
         </footer>
       </article>
+      )}
     </div>
   );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
   return <div className="flex justify-between py-0.5"><span className="text-ink-500">{label}</span><span className="font-mono">{value}</span></div>;
+}
+
+// The Delivery Challan: who it is for, what goes, how many. Deliberately no prices, no GST, no totals in money.
+function ChallanArticle({ inv }: { inv: Full }) {
+  const wo = inv.work_order;
+  const totalQty = inv.invoice_lines.reduce((n, l) => n + Number(l.qty), 0);
+  return (
+    <article className="mx-auto w-full max-w-4xl rounded-lg border border-kraft-200 bg-white p-8 text-[13px] print:border-0 print:p-0">
+      <header className="flex items-start justify-between border-b-2 border-forest-900 pb-4">
+        <div>
+          <div className="text-lg font-bold text-forest-900">{COMPANY.name}</div>
+          {COMPANY.address && <div className="max-w-xs text-xs text-ink-700">{COMPANY.address}</div>}
+          {COMPANY.gstin && <div className="text-xs">GSTIN: <span className="font-mono">{COMPANY.gstin}</span></div>}
+          {(COMPANY.phone || COMPANY.email) && <div className="text-xs text-ink-700">{[COMPANY.phone, COMPANY.email].filter(Boolean).join(' · ')}</div>}
+        </div>
+        <div className="text-right">
+          <div className="text-xl font-bold tracking-wide text-forest-900">DELIVERY CHALLAN</div>
+          <div className="font-mono text-sm font-bold">{inv.invoice_number}</div>
+          <div className="text-xs text-ink-700">Date: {new Date(inv.invoice_date).toLocaleDateString('en-GB')}</div>
+        </div>
+      </header>
+
+      <section className="mt-4 grid grid-cols-2 gap-6">
+        <div>
+          <div className="text-[11px] font-bold uppercase text-ink-500">Deliver to</div>
+          <div className="font-bold">{wo?.partner?.name ?? '—'}</div>
+          <div className="text-xs text-ink-700">Vendor code {wo?.partner?.code}</div>
+          {wo?.partner?.gstin && <div className="text-xs">GSTIN: <span className="font-mono">{wo.partner.gstin}</span></div>}
+          {wo?.location && <div className="mt-1 text-xs text-ink-700">{wo.location.label}</div>}
+        </div>
+        <div className="text-xs">
+          <div className="flex justify-between"><span className="text-ink-500">Work Order</span><span className="font-mono font-bold">{wo?.wo_number}</span></div>
+          {wo?.doc_ref && <div className="flex justify-between"><span className="text-ink-500">Document ref</span><span className="font-mono">{wo.doc_ref}</span></div>}
+          <div className="mt-2 flex justify-between"><span className="text-ink-500">Vehicle no.</span><span className="w-32 border-b border-ink-300">&nbsp;</span></div>
+        </div>
+      </section>
+
+      <table className="mt-5 w-full text-xs">
+        <thead className="bg-kraft-100 text-left font-bold uppercase">
+          <tr><th className="px-2 py-2">#</th><th className="px-2 py-2">Item</th><th className="px-2 py-2">Customer Ref</th><th className="px-2 py-2 text-right">Qty</th></tr>
+        </thead>
+        <tbody>
+          {inv.invoice_lines.map((l, i) => (
+            <tr key={l.id} className="border-b border-kraft-100">
+              <td className="px-2 py-2">{i + 1}</td>
+              <td className="px-2 py-2"><div className="font-bold">{l.description}</div><div className="font-mono text-[11px] text-ink-500">{l.work_order_line?.part_no_snapshot}</div></td>
+              <td className="px-2 py-2 font-mono">{l.work_order_line?.customer_ref || '—'}</td>
+              <td className="px-2 py-2 text-right font-mono">{Number(l.qty)} {l.work_order_line?.uom_snapshot}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-forest-900 font-bold">
+            <td className="px-2 py-2" colSpan={3}>Total quantity</td>
+            <td className="px-2 py-2 text-right font-mono">{totalQty}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <footer className="mt-14 grid grid-cols-2 gap-10 text-xs text-ink-700">
+        <span className="border-t border-ink-300 pt-1">Received by (name, signature, date)</span>
+        <span className="border-t border-ink-300 pt-1 text-right">Authorised signatory</span>
+      </footer>
+      <p className="mt-6 text-[11px] text-ink-500">This is a computer-generated delivery challan. It does not show prices and is not a tax invoice.</p>
+    </article>
+  );
 }
