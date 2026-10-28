@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { canSeePrices } from '@/lib/priceAccess';
 import type { QcRejection, QcRejectionDecision } from '@sgr/types';
+import { todayLocal } from '@/lib/dates';
 
 // Units QC (or the Planner, at production) rejected. Finance and the MD decide, per quantity:
 //   Scrap       the units are written off and can never be billed; the order needs that many fewer.
@@ -94,7 +95,7 @@ function RejectionCard({ r, canDecide, onError, onDone }: { r: Row; canDecide: b
   const [price, setPrice] = useState(String(r.line?.final_price ?? ''));
   const [date, setDate] = useState('');
   const [busy, setBusy] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
 
   async function submit() {
     onError('');

@@ -102,6 +102,12 @@ files **in order**, pasting each one's full contents and clicking Run:
     the Invoice: Finished Goods creates a price-free challan (DC number,
     quantities only, no GST); signed-in users can no longer create a tax
     invoice. Old invoices stay viewable (price roles only)
+27. `db/migrations/029_go_live_hardening.sql` — pre-go-live review fixes: Work
+    Orders can only be inserted as drafts; quantity limits enforced by the
+    database whichever way a row arrives; QC inspections written only by the
+    QC function; internal helpers no longer callable; Indian-time dates
+    (`app.today_ist()`); Delivery Challan numbers restart each financial year;
+    least-privilege grants; indexes on foreign keys
 
 All of them are safe to re-run (`create table if not exists`, `drop policy if
 exists` + recreate, etc.) if you need to reapply one after a fix.
@@ -214,6 +220,14 @@ now **fails loudly** (a red ✗ in the Actions tab) rather than silently
 uploading an empty backup, which is what it did before this was fixed —
 so a failed run here means the secret is missing or wrong, not that
 nothing is being backed up.
+
+3. **Also add a second secret, `BACKUP_PASSPHRASE`** (any long passphrase you
+   will keep somewhere safe). The repository is public, and a workflow artifact
+   of a public repository can be downloaded by any GitHub account, so the
+   backup is encrypted with this passphrase before it is uploaded; if the
+   secret is missing the job fails and uploads nothing. To open a backup:
+   `gpg --decrypt sgr_db_backup_YYYY-MM-DD.json.gpg > sgr_db_backup.json`.
+   (Making the repository private is simpler still, and worth doing.)
 
 You can trigger a run immediately instead of waiting 2 days: **Actions →
 Automated Database Backup (Every 2 Days) → Run workflow**.

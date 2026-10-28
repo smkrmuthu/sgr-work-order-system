@@ -54,6 +54,17 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
 const homeFor = (role?: UserRole | null) =>
   role === 'md' || role === 'admin' || role === 'planner' ? '/dashboard' : role === 'qc' ? '/qc' : '/work-orders';
 
+// Which roles may open a screen. Anything not listed (an order's detail page, a printed challan) is open to every
+// signed-in role. This stops a typed address from showing a screen the menu hides; the data itself is protected by
+// the database either way.
+function rolesFor(pathname: string): UserRole[] | null {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  if (path === '/work-orders/new') return ['creator', 'md', 'admin'];
+  if (path.startsWith('/work-orders/')) return null;
+  const item = NAV_GROUPS.flatMap((g) => g.items).find((n) => path === n.href || path.startsWith(n.href + '/'));
+  return item ? item.roles : null;
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { loading, session, profile } = useAuth();
   const router = useRouter();
@@ -63,6 +74,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loading && !session) router.replace('/login');
   }, [loading, session, router]);
+
+  const allowedRoles = rolesFor(pathname);
+  const blocked = !!profile && !!allowedRoles && !allowedRoles.includes(profile.role);
+  useEffect(() => {
+    if (blocked && profile) router.replace(homeFor(profile.role));
+  }, [blocked, profile, router]);
 
   // How many rejected quantities wait for a Finance/MD decision (shown as a badge on the Rejections tab).
   const [pendingRej, setPendingRej] = useState(0);
@@ -84,7 +101,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (loading || !session) return null;
 
-  const role = profile?.role ?? 'creator';
+  if (!profile) {
+    // Signed in, but this login's row in app.users could not be read (network, or the account is not set up).
+    // Never guess a role for it.
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-kraft-50 px-4 sm:px-6">
+        <div className="max-w-sm rounded-lg border border-amber-200 bg-white p-6 text-center shadow-sm">
+          <div className="mb-2 text-sm font-bold text-forest-900">We couldn&apos;t load your account</div>
+          <p className="mb-4 text-xs text-ink-500">Check your internet connection and try again. If it keeps happening, ask an MD or Admin to check that your login is set up.</p>
+          <div className="flex justify-center gap-2">
+            <button onClick={() => window.location.reload()} className="btn-secondary">Try again</button>
+            <button onClick={() => supabase.auth.signOut()} className="btn-secondary">Sign out</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (blocked) return null;
+
+  const role = profile.role;
   const initials = (profile?.full_name ?? profile?.email ?? '??').slice(0, 2).toUpperCase();
   const groups = NAV_GROUPS
     .map((g) => ({ ...g, items: g.items.filter((n) => n.roles.includes(role)) }))
@@ -113,7 +148,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </div>
   );
 
-  if (profile && !profile.is_active) {
+  if (!profile.is_active) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-kraft-50 px-4 sm:px-6">
         <div className="max-w-sm rounded-lg border border-rose-200 bg-white p-6 text-center shadow-sm">

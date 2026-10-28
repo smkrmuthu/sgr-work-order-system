@@ -2,7 +2,7 @@
 
 A hand-off for anyone (a person, or a Claude session on another computer) picking this project up. It says what the
 system is, how it is deployed, the rules that were agreed with the owner, and what is still open. The README covers
-the architecture; `docs/SETUP.md` lists every migration in order. Last updated: 28 Oct 2026 (migrations 001–027).
+the architecture; `docs/SETUP.md` lists every migration in order. Last updated: 28 Oct 2026 (migrations 001–029).
 
 **Never put passwords, API keys or the Supabase `service_role` key in this repo or in chat.** The service key lives
 only in the GitHub Actions secret `SUPABASE_SERVICE_ROLE_KEY` (used by the nightly backup) and the Edge Function's
@@ -124,6 +124,31 @@ database. Making all prices database-level is possible but needs prices moved ou
 - The Edge Function checks the caller's role itself; its CORS origin list must include any new domain.
 - PostgREST embedded selects (e.g. `qc_rejections` → `decisions:qc_rejection_decisions(...)`) are only exercised in a
   real browser; the PGlite tests do not run PostgREST, so check new embeds on the live site.
+
+## 5b. Go-live review (28 Oct 2026) — what was checked and changed
+
+A full review before real data starts on 1 Nov 2026 (security advisors, every RLS policy and security-definer function,
+the Edge Function, workflows, frontend). Fixed in migration 029 and the code that day:
+- A Creator could insert a Work Order already "created" (the insert policy checked only the role). Inserts are now drafts only.
+- Quantity rules lived only in the app's functions. Production output, QC submissions and QC inspections are now
+  protected in the database itself; ledgers (history, approvals, invoices, inspections) are append-only by grant too.
+- Dates: the database clock is UTC, so "today" was wrong between midnight and 5:30 am IST (financial-year label on
+  1 April, night-shift entries). Use `app.today_ist()` in SQL and `todayLocal()` (`apps/web/lib/dates.ts`) in the app,
+  never `new Date().toISOString().slice(0, 10)`.
+- Delivery Challan numbers restart each financial year (counter keys are `-<start year>`, e.g. -2026).
+- The app now refuses to show a screen the menu hides when its address is typed, and never guesses a role when the
+  profile cannot be read. A friendly error screen replaces a blank page.
+- The nightly backup is encrypted before upload (the repo is public; artifacts of a public repo are downloadable by any
+  GitHub account). Needs the `BACKUP_PASSPHRASE` secret.
+- Security headers for the Cloudflare site (`apps/web/public/_headers`).
+
+Still the owner's to do (cannot be done from code): make the GitHub repository private and delete the old backup
+artifacts; add `BACKUP_PASSPHRASE`; turn on leaked-password protection and confirm the Supabase plan (Free projects
+pause when idle and have no automatic backups); decide what to do with the old prototype's `public` tables (open to
+every signed-in user) and its trigger on `auth.users`.
+
+Known and accepted: Production/QC price hiding is display-level (see section 4); Storage files and Auth logins are not
+in the JSON backup; the dashboard reads are subject to PostgREST's 1000-row cap.
 
 ## 6. Open items
 - QC and Production Planner could remember the last selected order when you come back (offered, not decided).

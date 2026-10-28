@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { STATUS_LABEL, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type { WorkOrder, WoStatus } from '@sgr/types';
+import { todayLocal } from '@/lib/dates';
 
 // What the Production (Planner) user sees on the Dashboard: the orders that still need work on the floor.
 // No prices, invoices or revenue here — that is the MD's dashboard.
@@ -24,7 +25,7 @@ export default function ProductionDashboard() {
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<'all' | WoStatus>('all');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
 
   const load = useCallback(async () => {
     setError('');

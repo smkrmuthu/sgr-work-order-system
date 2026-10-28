@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
+import { todayLocal } from '@/lib/dates';
 import {
   BACKUP_TABLES,
   fetchFullDatabaseDump,
@@ -41,7 +42,7 @@ export default function BackupPage() {
     try {
       const dump = await fetchFullDatabaseDump(profile?.email || 'admin@sgr.com');
       const sql = generateSqlRebuildScript(dump);
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const dateStr = todayLocal();
       const filename = `sgr_db_rebuild_${dateStr}.sql`;
       downloadFile(sql, filename, 'application/sql');
       setSuccessNotice(`Successfully generated and downloaded ${filename} (${dump.metadata.total_records} records).`);
@@ -59,7 +60,7 @@ export default function BackupPage() {
     try {
       const dump = await fetchFullDatabaseDump(profile?.email || 'admin@sgr.com');
       const jsonStr = JSON.stringify(dump, null, 2);
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const dateStr = todayLocal();
       const filename = `sgr_db_backup_${dateStr}.json`;
       downloadFile(jsonStr, filename, 'application/json');
       setSuccessNotice(`Successfully exported JSON backup archive ${filename}.`);

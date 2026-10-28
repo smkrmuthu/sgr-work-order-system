@@ -5,6 +5,7 @@ import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { STATUS_LABEL } from '@/lib/statusLabels';
 import type { WorkOrder, WorkOrderLine, Shift, Supervisor, CompletionDateChange, ProductionOutputLine, QcSubmission, QcRejectReason } from '@sgr/types';
+import { todayLocal } from '@/lib/dates';
 
 interface LogEntry {
   id: string;
@@ -41,7 +42,7 @@ export default function PlannerPage() {
   const [dateChanges, setDateChanges] = useState<DateChange[]>([]);
   const [error, setError] = useState('');
 
-  const [entryDate, setEntryDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [entryDate, setEntryDate] = useState(() => todayLocal());
   const [shiftId, setShiftId] = useState('');
   const [labour, setLabour] = useState('6');
   // Shift notes: separate points, like a Work Order's Additional Notes.
@@ -233,7 +234,7 @@ export default function PlannerPage() {
                     <span className="font-bold">{selected.expected_completion_date ?? 'not set'}</span>
                     <span className="text-ink-300">→</span>
                     <span className="text-xs font-bold text-ink-700">New date:</span>
-                    <input type="date" min={new Date().toISOString().slice(0, 10)} value={newCompletionDate} onChange={(e) => setNewCompletionDate(e.target.value)} className="input w-auto" />
+                    <input type="date" min={todayLocal()} value={newCompletionDate} onChange={(e) => setNewCompletionDate(e.target.value)} className="input w-auto" />
                     {selected.expected_completion_date && newCompletionDate && newCompletionDate !== selected.expected_completion_date && (
                       <span className="rounded-md bg-amber-50 px-2 py-1 font-mono text-xs font-bold text-amber-900">
                         {selected.expected_completion_date} → {newCompletionDate}

@@ -33,7 +33,7 @@ await db.exec(`
 
 // The API roles get their privileges from 005_grants.sql itself — no hand-written grants here, so a
 // missing grant in the migrations fails these tests the way it would fail the real app.
-const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql', '024_item_weight_limits.sql', '025_qc_rejections.sql', '026_shift_notes.sql', '027_realtime.sql', '028_delivery_challan.sql'];
+const MIGRATIONS = ['001_schema.sql', '002_rls.sql', '003_functions.sql', '004_seed.sql', '005_grants.sql', '006_notes_and_customer_ref.sql', '007_creator_edit_before_approval.sql', '008_service_role_grants.sql', '009_qc_files.sql', '010_billing_and_dispatch.sql', '011_md_approve_and_revisions.sql', '012_review_fixes.sql', '013_backup_export_rpc.sql', '014_sales_persons.sql', '015_work_order_sales_person.sql', '016_update_work_order_sales_person.sql', '017_line_customer_price.sql', '018_customer_price_restricted.sql', '019_gsm_requirement.sql', '020_supervisors_and_completion_reason.sql', '021_sales_order_file_and_delivery_date.sql', '022_work_order_category.sql', '023_unit_weight.sql', '024_item_weight_limits.sql', '025_qc_rejections.sql', '026_shift_notes.sql', '027_realtime.sql', '028_delivery_challan.sql', '029_go_live_hardening.sql'];
 for (const f of MIGRATIONS) {
   const sql = fs.readFileSync(`${ROOT}/${f}`, 'utf8');
   try { await db.exec(sql); ok(true, `${f} applies cleanly`); }
@@ -80,6 +80,7 @@ const SUPERVISOR = (await db.query(`insert into app.supervisors (name, phone) va
 const REASON_OTHER = (await db.query(`select id from app.qc_reject_reasons where name='Other'`)).rows[0].id;
 // Runs as the database owner but with `auth.uid()` set to this user: used for generate_invoice, which signed-in API users can
 // no longer call (028) but whose logic is still tested here.
+const expectErr = async (fn) => { try { await fn(); return null; } catch (e) { return e.message; } };
 const asOwner = async (userId, fn) => { await db.exec(`reset role; select set_config('request.jwt.claim.sub','${userId}',false)`); return await fn(); };
 const asAnon = async (fn) => { await db.exec('set role anon'); try { return await fn(); } finally { await db.exec('reset role'); } };
 
@@ -526,8 +527,7 @@ const partialStatus = (await as(CREATOR, () => db.query(`select status from app.
 ok(partialStatus !== 'completed', 'a partly billed order (line 2 never produced) stays open after a dispatch: ' + partialStatus);
 
 let editInvoice = null;
-const editRes = await as(MD, () => db.query(`update app.invoices set grand_total = 1 where id=$1`, [inv3Id]));
-ok(editRes.affectedRows === 0, 'an invoice cannot be edited directly, even by the MD');
+ok(/permission denied/.test(await expectErr(() => as(MD, () => db.query(`update app.invoices set grand_total = 1 where id=$1`, [inv3Id]))) || ''), 'an invoice cannot be edited directly, even by the MD');
 
 // ---------------------------------------------------------------- MD approves too; one MD edit = one revision (011)
 const mdPendingId = (await as(CREATOR, () => db.query(`select app.save_draft(null, $1) as id`, [JSON.stringify({
@@ -565,7 +565,7 @@ await as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.strin
   work_order_id: mdPendingId, shift_id: shiftMorningId, supervisor_id: SUPERVISOR, labour_count: 3, lines: [{ work_order_line_id: mdLine, qty: 100, unit_weight_g: 1 }] })]));
 let belowMade = null;
 try { await as(MD, () => db.query(`select app.update_work_order($1, $2)`, [mdPendingId, JSON.stringify({ lines: [{ id: mdLine, qty: 50 }] })])); } catch (e) { belowMade = e.message; }
-ok(/already produced or billed/.test(belowMade || ''), 'quantity cannot be cut below what is already produced: ' + belowMade);
+ok(/already produced, billed or written off/.test(belowMade || ''), 'quantity cannot be cut below what is already produced: ' + belowMade);
 
 // Only the MD/Admin, and no side door around the revision.
 let creatorEditsReleased = null;
@@ -603,8 +603,8 @@ try { await as(PLANNER, () => db.query(`insert into app.attachments (work_order_
 catch (e) { plannerAttach = e.message; }
 ok(!!plannerAttach, 'a Planner cannot attach files to a QC inspection (' + plannerAttach + ')');
 const delAtt = await as(MD, () => db.query(`delete from app.attachments where qc_inspection_id=$1`, [att.insp]));
-const updAtt = await as(MD, () => db.query(`update app.attachments set file_name='renamed' where qc_inspection_id=$1`, [att.insp]));
-ok(delAtt.affectedRows === 0 && updAtt.affectedRows === 0, 'an inspection file cannot be deleted or renamed, even by the MD');
+const updAtt = await expectErr(() => as(MD, () => db.query(`update app.attachments set file_name='renamed' where qc_inspection_id=$1`, [att.insp])));
+ok(delAtt.affectedRows === 0 && /permission denied/.test(updAtt || ''), 'an inspection file cannot be deleted or renamed, even by the MD');
 
 // ---------------------------------------------------------------- 012 review fixes
 // #1 lock: a single (non-concurrent) call still behaves exactly as before — PGlite is one connection,
@@ -786,7 +786,6 @@ const sdShift = (await db.query(`select id from app.shifts limit 1`)).rows[0].id
 const prod = (sup) => as(PLANNER, () => db.query(`select app.record_production($1)`, [JSON.stringify({
   work_order_id: sdOrder, shift_id: sdShift, labour_count: 3, ...(sup === undefined ? {} : { supervisor_id: sup }),
   lines: [{ work_order_line_id: sdLine, qty: 5, unit_weight_g: 1 }] })]));
-const expectErr = async (fn) => { try { await fn(); return null; } catch (e) { return e.message; } };
 
 ok(/Choose the Supervisor/.test(await expectErr(() => prod()) || ''), 'a production entry without a Supervisor is refused');
 ok(/not available/.test(await expectErr(() => prod(supOff)) || ''), 'a deactivated Supervisor cannot be chosen');
@@ -1035,9 +1034,9 @@ ok(Number((await db.query(`select coalesce(sum(qty),0) q from app.production_out
 // ---------------------------------------------------------------- Delivery Challan replaces the invoice (028)
 ok(/permission denied for function/.test(await expectErr(() => as(MD, () => db.query(`select app.generate_invoice($1, 18, 'intra')`, [R1.woId]))) || ''), 'signed-in users can no longer create a tax invoice from the app');
 const DC = await rjOrder(40);
-await rjProduce(DC.woId, DC.lineId, 40); await rjSend(DC.lineId);
+await rjProduce(DC.woId, DC.lineId, 25); await rjSend(DC.lineId);
 ok(/Nothing is ready to deliver/.test(await expectErr(() => as(MD, () => db.query(`select app.generate_challan($1)`, [DC.woId]))) || ''), 'no challan before QC has approved anything');
-await rjInspect(DC.lineId, 25, REASON_OVER);
+await rjInspect(DC.lineId, 25);
 for (const [name, who] of [['Creator', CREATOR], ['Finance', FINANCE], ['Planner', PLANNER], ['QC', QC]]) {
   ok(/Only MD or Admin/.test(await expectErr(() => as(who, () => db.query(`select app.generate_challan($1)`, [DC.woId]))) || ''), name + ' cannot create a delivery challan');
 }
@@ -1048,12 +1047,63 @@ ok(dc.kind === 'challan' && /^DC\/\d{4}-\d{2}\/\d{4}$/.test(dc.invoice_number) &
 const dcLines = (await db.query(`select qty from app.invoice_lines where invoice_id=$1`, [dcId])).rows;
 ok(dcLines.length === 1 && Number(dcLines[0].qty) === 25, 'it covers exactly the 25 QC-accepted units');
 ok(/Nothing is ready to deliver/.test(await expectErr(() => as(MD, () => db.query(`select app.generate_challan($1)`, [DC.woId]))) || ''), 'the same units cannot go on a second challan');
-const dc2Id = (await (async () => { await rjInspect(DC.lineId, 15); return as(MD, () => db.query(`select app.generate_challan($1) as id`, [DC.woId])); })()).rows[0].id;
+const dc2Id = (await (async () => { await rjProduce(DC.woId, DC.lineId, 15); await rjSend(DC.lineId); await rjInspect(DC.lineId, 15); return as(MD, () => db.query(`select app.generate_challan($1) as id`, [DC.woId])); })()).rows[0].id;
 const dc2 = (await db.query(`select invoice_number from app.invoices where id=$1`, [dc2Id])).rows[0];
 ok(dc2.invoice_number !== dc.invoice_number, 'the next challan gets the next number: ' + dc2.invoice_number);
 ok((await db.query(`select count(*)::int n from app.invoices where kind='invoice'`)).rows[0].n >= 1, 'earlier invoices keep kind = invoice');
 await as(MD, () => db.query(`select app.mark_invoice_dispatched($1)`, [dcId]));
 await as(MD, () => db.query(`select app.mark_invoice_dispatched($1)`, [dc2Id]));
 ok((await rjStatus(DC.woId)).status === 'completed', 'dispatching the challans completes the order, as invoices did');
+
+// ---------------------------------------------------------------- go-live hardening (029)
+{
+  const direct = (who, sql, params) => expectErr(() => as(who, () => db.query(sql, params)));
+  // 1. Work Orders arrive as drafts only
+  ok(/row-level security/.test(await direct(CREATOR, `insert into app.work_orders (status, wo_number, delivery_date, created_by) values ('created', '999/2026-27', '2027-12-01', $1)`, [CREATOR]) || ''),
+     'a Creator cannot post a Work Order straight in as already "created"');
+  ok(/row-level security/.test(await direct(CREATOR, `insert into app.work_orders (status, created_by) values ('draft', $1)`, [MD]) || ''),
+     'a Creator cannot insert a draft in somebody else\'s name');
+  ok((await as(CREATOR, () => db.query(`insert into app.work_orders (status, created_by) values ('draft', $1) returning id`, [CREATOR]))).rows.length === 1,
+     'a plain draft owned by the Creator is still fine');
+
+  const HG = await rjOrder(10);
+  await rjProduce(HG.woId, HG.lineId, 10);
+  const hgEntry = (await db.query(`select id from app.production_entries where work_order_id=$1 limit 1`, [HG.woId])).rows[0].id;
+  // 2. quantities hold whichever way the row arrives
+  ok(/above the ordered quantity/.test(await direct(PLANNER, `insert into app.production_output_lines (production_entry_id, work_order_line_id, qty) values ($1, $2, 1)`, [hgEntry, HG.lineId]) || ''),
+     'production output beyond the ordered quantity is refused even as a direct insert');
+  ok(/Cannot send/.test(await direct(PLANNER, `insert into app.qc_submissions (work_order_line_id, qty, submitted_by) values ($1, 11, $2)`, [HG.lineId, PLANNER]) || ''),
+     'a QC submission larger than what was produced is refused (direct insert)');
+  await rjSend(HG.lineId);
+  ok(/Cannot send/.test(await direct(PLANNER, `insert into app.qc_submissions (work_order_line_id, qty, submitted_by) values ($1, 1, $2)`, [HG.lineId, PLANNER]) || ''),
+     'and again once everything produced has already been sent');
+  ok(/row-level security|permission denied/.test(await direct(QC, `insert into app.qc_inspections (work_order_line_id, accepted_qty, held_qty) values ($1, 10, 0)`, [HG.lineId]) || ''),
+     'QC cannot write an inspection directly; only record_qc_inspection can');
+  await rjInspect(HG.lineId, 10);
+  ok((await rjStatus(HG.woId)).status === 'ready_for_dispatch', 'the proper QC function still works');
+
+  // 3. internal helpers are not callable
+  ok(/permission denied for function/.test(await direct(QC, `select app.recompute_work_order_status($1)`, [HG.woId]) || ''), 'recompute_work_order_status is internal, not an API call');
+  // 4. create_work_order role check
+  ok(/Only the Work Order Master Creator/.test(await direct(PLANNER, `select app.create_work_order($1)`, [HG.woId]) || ''), 'only Creator/MD/Admin can submit a Work Order');
+  // 6. India date
+  ok((await db.query(`select app.today_ist() = (now() at time zone 'Asia/Kolkata')::date as same`)).rows[0].same, 'app.today_ist() is the date in India');
+  // 7. challan numbers are kept per financial year
+  const hgChallan = (await as(MD, () => db.query(`select app.generate_challan($1) as id`, [HG.woId]))).rows[0].id;
+  const hgNo = (await db.query(`select invoice_number from app.invoices where id=$1`, [hgChallan])).rows[0].invoice_number;
+  const hgFy = (await db.query(`select (case when extract(month from app.today_ist()) < 4 then extract(year from app.today_ist())::int - 1 else extract(year from app.today_ist())::int end) fy`)).rows[0].fy;
+  ok((await db.query(`select count(*)::int n from app.wo_number_counters where fiscal_year_start = $1`, [-hgFy])).rows[0].n === 1,
+     'the challan counter is kept per financial year (' + hgNo + ')');
+  // 8. least privilege
+  for (const [what, sql] of [
+    ['delete from the status history', `delete from app.status_history`],
+    ['edit an approval', `update app.finance_approvals set comments = 'x'`],
+    ['delete a Work Order', `delete from app.work_orders`],
+    ['edit a production output line', `update app.production_output_lines set qty = 1`],
+    ['touch the number counters', `select * from app.wo_number_counters`],
+  ]) {
+    ok(/permission denied/.test(await direct(MD, sql) || ''), 'even the MD cannot ' + what);
+  }
+}
 
 console.log('\nDone.');

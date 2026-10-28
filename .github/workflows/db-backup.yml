@@ -42,6 +42,28 @@ jobs:
       - name: Generate Database Backup Files (.sql and .json)
         run: node scripts/db-backup.mjs
 
+      - name: Encrypt the backup
+        # This repository is public, and a workflow artifact of a public repository can be downloaded by any GitHub
+        # account. A backup holds customers, prices and staff emails, so it is only ever uploaded encrypted. Add the
+        # repository secret BACKUP_PASSPHRASE (Settings -> Secrets and variables -> Actions) and keep the same
+        # passphrase somewhere safe: without it a backup cannot be opened. To open one:
+        #   gpg --decrypt sgr_db_backup_YYYY-MM-DD.json.gpg > sgr_db_backup.json
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::Repository secret BACKUP_PASSPHRASE is missing, so the backup is NOT uploaded (it would be public)."
+            rm -rf backups
+            exit 1
+          fi
+          cd backups
+          for f in *; do
+            printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+              --symmetric --cipher-algo AES256 -o "$f.gpg" "$f"
+            rm "$f"
+          done
+          ls -l
+
       - name: Upload Backup Artifacts (90-day retention)
         uses: actions/upload-artifact@v4
         with:
