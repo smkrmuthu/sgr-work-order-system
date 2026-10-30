@@ -68,7 +68,7 @@ export default function LoginPage() {
             {STEPS.map((s, i) => (
               <span
                 key={s}
-                className="step-chip rounded-full px-3 py-1 text-[11px] font-bold tracking-wide"
+                className="step-chip rounded-full px-3 py-1 text-xs font-bold tracking-wide"
                 style={{ animationDelay: `${i * 2 - 10}s` }} /* negative: the cycle is already running on load */
               >
                 {s}
@@ -77,7 +77,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div className="relative text-[11px] text-forest-300/80">© {new Date().getFullYear()} SGR Moulds India Pvt Ltd</div>
+        <div className="relative text-xs text-forest-300/80">© {new Date().getFullYear()} SGR Moulds India Pvt Ltd</div>
       </aside>
 
       {/* ------------------------------------------------ sign-in form */}
@@ -125,7 +125,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword((s) => !s)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-[11px] font-bold text-ink-500 hover:text-forest-800"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-bold text-ink-500 hover:text-forest-800"
                 >
                   {showPassword ? 'Hide' : 'Show'}
                 </button>
@@ -148,7 +148,7 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="mt-8 text-xs text-ink-300">
+          <p className="mt-8 text-xs text-ink-500">
             Trouble signing in? Ask your MD or system administrator to check your account.
           </p>
         </div>

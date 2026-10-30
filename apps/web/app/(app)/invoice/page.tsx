@@ -112,7 +112,7 @@ function InvoiceView() {
             {inv.invoice_lines.map((l, i) => (
               <tr key={l.id} className="border-b border-kraft-100">
                 <td className="px-2 py-2">{i + 1}</td>
-                <td className="px-2 py-2"><div className="font-bold">{l.description}</div><div className="font-mono text-[11px] text-ink-500">{l.work_order_line?.part_no_snapshot}</div></td>
+                <td className="px-2 py-2"><div className="font-bold">{l.description}</div><div className="font-mono text-xs text-ink-500">{l.work_order_line?.part_no_snapshot}</div></td>
                 <td className="px-2 py-2 font-mono">{l.work_order_line?.customer_ref || '—'}</td>
                 <td className="px-2 py-2 text-right font-mono">{Number(l.qty)} {l.work_order_line?.uom_snapshot}</td>
                 <td className="px-2 py-2 text-right font-mono">{money(l.price)}</td>
@@ -197,7 +197,7 @@ function ChallanArticle({ inv }: { inv: Full }) {
           {inv.invoice_lines.map((l, i) => (
             <tr key={l.id} className="border-b border-kraft-100">
               <td className="px-2 py-2">{i + 1}</td>
-              <td className="px-2 py-2"><div className="font-bold">{l.description}</div><div className="font-mono text-[11px] text-ink-500">{l.work_order_line?.part_no_snapshot}</div></td>
+              <td className="px-2 py-2"><div className="font-bold">{l.description}</div><div className="font-mono text-xs text-ink-500">{l.work_order_line?.part_no_snapshot}</div></td>
               <td className="px-2 py-2 font-mono">{l.work_order_line?.customer_ref || '—'}</td>
               <td className="px-2 py-2 text-right font-mono">{Number(l.qty)} {l.work_order_line?.uom_snapshot}</td>
             </tr>
@@ -215,7 +215,7 @@ function ChallanArticle({ inv }: { inv: Full }) {
         <span className="border-t border-ink-300 pt-1">Received by (name, signature, date)</span>
         <span className="border-t border-ink-300 pt-1 text-right">Authorised signatory</span>
       </footer>
-      <p className="mt-6 text-[11px] text-ink-500">This is a computer-generated delivery challan. It does not show prices and is not a tax invoice.</p>
+      <p className="mt-6 text-xs text-ink-500">This is a computer-generated delivery challan. It does not show prices and is not a tax invoice.</p>
     </article>
   );
 }

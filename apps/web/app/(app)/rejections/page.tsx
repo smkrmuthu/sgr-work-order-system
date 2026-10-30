@@ -139,7 +139,7 @@ function RejectionCard({ r, canDecide, onError, onDone }: { r: Row; canDecide: b
         <Info label="Recorded by" value={`${r.recorder?.full_name ?? r.recorder?.email ?? '—'} · ${fmtDate(r.recorded_at)}`} />
         <Info label={r.unit_weight_g ? 'Weight of one unit' : 'Still to decide'} value={r.unit_weight_g ? `${r.unit_weight_g} g` : `${openQty} unit(s)`} />
       </div>
-      {r.comment && <div className="px-5 pb-4 text-[13px]"><span className="text-[11px] font-semibold text-ink-500">Comment: </span>{r.comment}</div>}
+      {r.comment && <div className="px-5 pb-4 text-[13px]"><span className="text-xs font-semibold text-ink-500">Comment: </span>{r.comment}</div>}
 
       {r.decisions.length > 0 && (
         <ul className="mx-5 mb-4 flex flex-col gap-1.5 rounded-md border border-kraft-200 bg-kraft-50 p-3 text-[13px]">
@@ -191,5 +191,5 @@ function RejectionCard({ r, canDecide, onError, onDone }: { r: Row; canDecide: b
 }
 
 function Info({ label, value }: { label: string; value: string }) {
-  return <div><div className="text-[11px] font-semibold text-ink-500">{label}</div><div className="text-sm font-bold">{value}</div></div>;
+  return <div><div className="text-xs font-semibold text-ink-500">{label}</div><div className="text-sm font-bold">{value}</div></div>;
 }

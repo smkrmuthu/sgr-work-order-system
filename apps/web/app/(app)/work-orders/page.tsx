@@ -140,13 +140,13 @@ export default function WorkOrdersPage() {
                 <td className="px-3 py-2 text-right font-mono">{r.total_qty.toLocaleString('en-IN')}</td>
                 <td className="px-3 py-2 text-center font-mono">R{r.revision}</td>
                 <td className="px-3 py-2">
-                  <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_BADGE_CLASS[r.status]}`}>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${STATUS_BADGE_CLASS[r.status]}`}>
                     {STATUS_LABEL[r.status]}
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right">
                   {editHref(r) && (
-                    <Link href={editHref(r)!} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50">
+                    <Link href={editHref(r)!} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-xs font-bold text-forest-800 hover:bg-kraft-50">
                       Edit
                     </Link>
                   )}

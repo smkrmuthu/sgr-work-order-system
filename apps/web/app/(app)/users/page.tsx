@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { manageUsers } from '@/lib/manageUsers';
 import type { UserRole } from '@sgr/types';
 import Field from '@/components/Field';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface Row {
   id: string;
@@ -27,6 +28,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
 // creating a login needs the service_role key a browser can never hold. See its own file for why.
 export default function UsersPage() {
   const { profile } = useAuth();
+  const askConfirm = useConfirm();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -76,7 +78,7 @@ export default function UsersPage() {
   }
 
   async function remove(row: Row) {
-    if (!confirm(`Delete ${row.email}? This removes their login entirely. (If they have already created or approved anything, deleting isn't possible — untick Active instead.)`)) return;
+    if (!(await askConfirm({ title: `Delete ${row.email}?`, message: "This removes their login entirely.\n\nIf they have already created or approved anything, deleting isn't possible; untick Active instead.", confirmLabel: 'Delete login', danger: true }))) return;
     setBusyId(row.id); setError('');
     const result = await manageUsers({ action: 'delete', id: row.id });
     setBusyId(null);
@@ -145,7 +147,7 @@ export default function UsersPage() {
             {rows?.map((r) => (
               <Fragment key={r.id}>
                 <tr className="border-t border-kraft-100">
-                  <td className="px-3 py-2 font-mono">{r.email}{r.id === profile?.id && <span className="ml-1 text-ink-300">(you)</span>}</td>
+                  <td className="px-3 py-2 font-mono">{r.email}{r.id === profile?.id && <span className="ml-1 text-ink-500">(you)</span>}</td>
                   <td className="px-3 py-2">{r.full_name || '—'}</td>
                   <td className="px-3 py-2">
                     <select

@@ -150,6 +150,14 @@ every signed-in user) and its trigger on `auth.users`.
 Known and accepted: Production/QC price hiding is display-level (see section 4); Storage files and Auth logins are not
 in the JSON backup; the dashboard reads are subject to PostgREST's 1000-row cap.
 
+## 5c. UI conventions (keep these when adding screens)
+- Text is never smaller than 12px (`text-xs`); uppercase column headers and tiny captions may be 11px. No `text-[9px]`/`text-[10px]`.
+- Hint and secondary text uses `text-ink-500` or darker (`ink-300` is too faint to read, below the 4.5:1 contrast guideline); status text uses `-700` shades.
+- Form fields use the shared `components/Field.tsx` (it links the label to its input); an input outside it needs `htmlFor` + `id`.
+- Anything wider than a phone (tables) goes in an `overflow-x-auto` box with a `min-w-[...]` on the table, never `overflow-hidden`.
+- Confirmations use `useConfirm()` from `components/ConfirmDialog.tsx`, not the browser's `confirm()`. Pass `danger: true` for deletes and cancellations.
+- Every colour class must exist in the theme (`globals.css`): Tailwind silently ignores an undefined one (`ink-400/600/800` once did not exist).
+
 ## 6. Open items
 - QC and Production Planner could remember the last selected order when you come back (offered, not decided).
 - MD cannot yet add a sales order file from the order detail page (only the Creator on the form).

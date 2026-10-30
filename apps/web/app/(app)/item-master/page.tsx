@@ -210,7 +210,7 @@ export default function ItemMasterPage() {
                 <Field label="Standard Weight (kg)"><input type="number" value={form.standard_weight_kg} onChange={set('standard_weight_kg')} className="input" /></Field>
                 <Field label="Max over standard (%)"><input type="number" min={0} max={100} step="any" value={form.tol_max} onChange={set('tol_max')} disabled={!canEditLimits} className="input disabled:bg-kraft-100" /></Field>
                 <Field label="Min under standard (%)"><input type="number" min={0} max={100} step="any" value={form.tol_min} onChange={set('tol_min')} disabled={!canEditLimits} placeholder="no lower limit" className="input disabled:bg-kraft-100" /></Field>
-                <div className="col-span-2 self-end pb-2 text-[11px] text-ink-500">
+                <div className="col-span-2 self-end pb-2 text-xs text-ink-500">
                   {(() => {
                     const w = Number(form.standard_weight_kg) * 1000;
                     if (!(w > 0)) return 'Set a standard weight to see the allowed range per unit.';

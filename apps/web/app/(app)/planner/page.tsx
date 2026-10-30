@@ -233,7 +233,7 @@ export default function PlannerPage() {
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="text-xs font-bold text-ink-700">Current:</span>
                     <span className="font-bold">{selected.expected_completion_date ?? 'not set'}</span>
-                    <span className="text-ink-300">→</span>
+                    <span className="text-ink-500">→</span>
                     <span className="text-xs font-bold text-ink-700">New date:</span>
                     <input type="date" min={todayLocal()} value={newCompletionDate} onChange={(e) => setNewCompletionDate(e.target.value)} className="input w-auto" />
                     {selected.expected_completion_date && newCompletionDate && newCompletionDate !== selected.expected_completion_date && (
@@ -244,7 +244,7 @@ export default function PlannerPage() {
                   </div>
                   {selected.expected_completion_date && (
                     <div className="max-w-xl">
-                      <label htmlFor="date-reason" className="mb-1 block text-[11px] font-bold text-ink-700">Reason for the change *</label>
+                      <label htmlFor="date-reason" className="mb-1 block text-xs font-bold text-ink-700">Reason for the change *</label>
                       <input id="date-reason" value={dateReason} onChange={(e) => setDateReason(e.target.value)} placeholder="Why is the completion date changing?" className="input" />
                     </div>
                   )}
@@ -285,9 +285,9 @@ export default function PlannerPage() {
                       <tr key={l.id} className="border-t border-kraft-100">
                         <td className="px-2 py-2 font-mono font-bold">
                           {l.part_no_snapshot}
-                          {l.replaces_line_id && <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-px font-sans text-[10px] text-blue-800">Re-produce</span>}
-                          {l.short_closed_qty > 0 && <span className="ml-2 rounded-full bg-rose-100 px-1.5 py-px font-sans text-[10px] text-rose-800">{l.short_closed_qty} written off</span>}
-                          {l.prodRejPending > 0 && <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-px font-sans text-[10px] text-amber-800">{l.prodRejPending} rejected, awaiting decision</span>}
+                          {l.replaces_line_id && <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-px font-sans text-xs text-blue-800">Re-produce</span>}
+                          {l.short_closed_qty > 0 && <span className="ml-2 rounded-full bg-rose-100 px-1.5 py-px font-sans text-xs text-rose-800">{l.short_closed_qty} written off</span>}
+                          {l.prodRejPending > 0 && <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-px font-sans text-xs text-amber-800">{l.prodRejPending} rejected, awaiting decision</span>}
                         </td>
                         <td className="px-2 py-2 font-mono">{l.qty}</td>
                         <td className="px-2 py-2 font-mono">{l.produced}</td>
@@ -295,7 +295,7 @@ export default function PlannerPage() {
                         <td className="px-2 py-2">
                           {unsent > 0
                             ? <button onClick={() => sendToQc(l.id)} className="btn-secondary !px-2 !py-1">Send {unsent} to QC</button>
-                            : <span className="text-ink-300">Nothing to send</span>}
+                            : <span className="text-ink-500">Nothing to send</span>}
                         </td>
                       </tr>
                     );
@@ -320,7 +320,7 @@ export default function PlannerPage() {
                     <option value="">{supervisors.length ? 'Select supervisor…' : 'No supervisors yet'}</option>
                     {supervisors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
-                  {supervisors.length === 0 && <div className="mt-1 text-[10px] text-ink-500">Ask the MD to add supervisors in Item Master → Supervisors.</div>}
+                  {supervisors.length === 0 && <div className="mt-1 text-xs text-ink-500">Ask the MD to add supervisors in Item Master → Supervisors.</div>}
                 </Field>
                 <Field label="Labour Count"><input type="number" value={labour} onChange={(e) => setLabour(e.target.value)} className="input" /></Field>
               </div>
@@ -346,11 +346,11 @@ export default function PlannerPage() {
                         <Field label="Weight of 1 unit (g) *">
                           <input type="number" step="0.01" min={0} value={v.unitG} onChange={(e) => setEntryValues((s) => ({ ...s, [l.id]: { ...v, unitG: e.target.value } }))}
                             className={`input w-36 ${problem ? '!border-rose-400 !bg-rose-50' : ''}`} />
-                          {maxG > 0 && <div className="mt-1 text-[10px] text-ink-500">{l.tolMin != null ? `${minUnitG(l).toFixed(0)} – ` : 'Max '}{maxG.toFixed(0)} g (std {l.tolMin != null ? `−${l.tolMin}% / ` : ''}+{l.tolMax}%)</div>}
+                          {maxG > 0 && <div className="mt-1 text-xs text-ink-500">{l.tolMin != null ? `${minUnitG(l).toFixed(0)} – ` : 'Max '}{maxG.toFixed(0)} g (std {l.tolMin != null ? `−${l.tolMin}% / ` : ''}+{l.tolMax}%)</div>}
                         </Field>
                         <Field label="Actual Total Weight (kg)">
                           <input type="text" readOnly disabled value={actualTotal} placeholder="0.00" className="input w-36 font-mono disabled:bg-kraft-100 disabled:text-ink-700 disabled:cursor-not-allowed" />
-                          <div className="mt-1 text-[10px] text-ink-500">Qty × weight of 1 unit</div>
+                          <div className="mt-1 text-xs text-ink-500">Qty × weight of 1 unit</div>
                         </Field>
                         <Field label="Standard Weight (kg)">
                           <input type="text" readOnly disabled value={stdTotal} placeholder="0.00" className="input w-32 font-mono disabled:bg-kraft-100 disabled:text-ink-500 disabled:cursor-not-allowed" />
@@ -362,14 +362,14 @@ export default function PlannerPage() {
                             {rejecting?.lineId === l.id ? (
                               <div className="mt-2 flex flex-wrap items-end gap-2">
                                 <div>
-                                  <label htmlFor="reject-reason" className="mb-1 block text-[11px] font-bold">Reason *</label>
+                                  <label htmlFor="reject-reason" className="mb-1 block text-xs font-bold">Reason *</label>
                                   <select id="reject-reason" value={rejecting.reasonId} onChange={(e) => setRejecting({ ...rejecting, reasonId: e.target.value })} className="input w-52">
                                     <option value="">Select reason…</option>
                                     {reasons.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                                   </select>
                                 </div>
                                 <div className="min-w-[180px] flex-1">
-                                  <label htmlFor="reject-comment" className="mb-1 block text-[11px] font-bold">Comment</label>
+                                  <label htmlFor="reject-comment" className="mb-1 block text-xs font-bold">Comment</label>
                                   <input id="reject-comment" value={rejecting.comment} onChange={(e) => setRejecting({ ...rejecting, comment: e.target.value })} className="input" />
                                 </div>
                                 <button onClick={() => rejectAtProduction(l)} className="btn-primary !bg-rose-700 hover:!bg-rose-800">Reject {v.qty} unit(s)</button>
@@ -378,26 +378,26 @@ export default function PlannerPage() {
                             ) : (
                               <button
                                 onClick={() => { setRejecting({ lineId: l.id, reasonId: reasons.find((r) => /weight/i.test(r.name) && (unitN > stdG(l) ? /over/i : /under/i).test(r.name))?.id ?? '', comment: '' }); }}
-                                className="mt-2 rounded-md border border-rose-300 bg-white px-2.5 py-1 text-[11px] font-bold text-rose-800 hover:bg-rose-100">
+                                className="mt-2 rounded-md border border-rose-300 bg-white px-2.5 py-1 text-xs font-bold text-rose-800 hover:bg-rose-100">
                                 Reject these {v.qty} unit(s) instead
                               </button>
                             )}
                           </div>
                         )}
                       </>
-                    ) : <span className="pt-5 text-xs font-bold text-emerald-600">✓ Fully produced</span>}
+                    ) : <span className="pt-5 text-xs font-bold text-emerald-700">✓ Fully produced</span>}
                   </div>
                 );
               })}
               <div className="mt-4 max-w-2xl">
-                <label htmlFor="shift-note-input" className="mb-1 block text-[11px] font-bold text-ink-700">Shift Notes</label>
+                <label htmlFor="shift-note-input" className="mb-1 block text-xs font-bold text-ink-700">Shift Notes</label>
                 <ol className="mb-2 flex flex-col gap-1.5">
-                  {shiftNotes.length === 0 && <li className="text-xs text-ink-300">No notes yet — add each point separately.</li>}
+                  {shiftNotes.length === 0 && <li className="text-xs text-ink-500">No notes yet — add each point separately.</li>}
                   {shiftNotes.map((n, i) => (
                     <li key={i} className="flex items-start gap-2 rounded-md border border-kraft-200 bg-kraft-50 px-2.5 py-1.5 text-[12.5px]">
-                      <span className="mt-px font-mono text-[11px] font-bold text-ink-500">{i + 1}.</span>
+                      <span className="mt-px font-mono text-xs font-bold text-ink-500">{i + 1}.</span>
                       <span className="flex-1 break-words">{n}</span>
-                      <button type="button" onClick={() => setShiftNotes((ns) => ns.filter((_, j) => j !== i))} aria-label={`Remove note ${i + 1}`} className="text-ink-300 hover:text-rose-600">✕</button>
+                      <button type="button" onClick={() => setShiftNotes((ns) => ns.filter((_, j) => j !== i))} aria-label={`Remove note ${i + 1}`} className="text-ink-500 hover:text-rose-600">✕</button>
                     </li>
                   ))}
                 </ol>
@@ -427,12 +427,12 @@ export default function PlannerPage() {
                     <tr key={e.id} className="border-t border-kraft-100">
                       <td className="px-2 py-2 font-mono">{e.production_date}</td>
                       <td className="px-2 py-2">{e.shift?.name ?? '—'}</td>
-                      <td className="px-2 py-2">{e.supervisor?.name ?? <span className="text-ink-300">—</span>}</td>
+                      <td className="px-2 py-2">{e.supervisor?.name ?? <span className="text-ink-500">—</span>}</td>
                       <td className="px-2 py-2 font-mono">{e.labour_count ?? '—'}</td>
                       <td className="px-2 py-2 font-mono">{(e.production_output_lines ?? []).reduce((n, o) => n + Number(o.qty), 0)}</td>
                       <td className="px-2 py-2 font-mono">{(e.production_output_lines ?? []).reduce((n, o) => n + Number(o.actual_weight_kg || 0), 0).toFixed(2)}</td>
                       <td className="px-2 py-2">
-                        {(e.production_entry_notes ?? []).length === 0 ? <span className="text-ink-300">—</span> : (
+                        {(e.production_entry_notes ?? []).length === 0 ? <span className="text-ink-500">—</span> : (
                           <ol className="flex flex-col gap-0.5">
                             {[...(e.production_entry_notes ?? [])].sort((a, b) => a.position - b.position).map((n) => (
                               <li key={n.position}><span className="font-mono text-ink-500">{n.position}.</span> {n.note}</li>

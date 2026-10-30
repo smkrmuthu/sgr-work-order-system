@@ -17,7 +17,7 @@ export default function Field({ label, children, className }: { label: ReactNode
   }
   return (
     <div className={className}>
-      <label htmlFor={id} className="mb-1 block text-[11px] font-bold text-ink-700">{label}</label>
+      <label htmlFor={id} className="mb-1 block text-xs font-bold text-ink-700">{label}</label>
       {child}
     </div>
   );

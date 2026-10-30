@@ -408,7 +408,7 @@ function WorkOrderForm() {
               <option value="">All categories</option>
               {categories.filter((c) => c.is_active || c.id === categoryId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <div className="mt-1 text-[10px] text-ink-300">Narrows the Part # list below to this category.</div>
+            <div className="mt-1 text-xs text-ink-500">Narrows the Part # list below to this category.</div>
           </Field>
         </div>
       </section>
@@ -447,7 +447,7 @@ function WorkOrderForm() {
                   <td className="px-2 py-2 font-mono font-bold">{l.customerPrice.trim() === '' ? '—' : `₹${(l.qty * Number(l.customerPrice)).toLocaleString('en-IN')}`}</td>
                   <td className="px-2 py-2">{l.remarks || '—'}</td>
                   <td className="px-2 py-2">
-                    <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-ink-300 hover:text-rose-600">✕</button>
+                    <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-ink-500 hover:text-rose-600">✕</button>
                   </td>
                 </tr>
               ))}
@@ -456,7 +456,7 @@ function WorkOrderForm() {
 
           <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-dashed border-kraft-300 bg-kraft-50 p-3">
             <div className="min-w-[220px] flex-1">
-              <label htmlFor="new-line-part" className="mb-1 block text-[11px] font-bold text-ink-700">Part #</label>
+              <label htmlFor="new-line-part" className="mb-1 block text-xs font-bold text-ink-700">Part #</label>
               <select
                 id="new-line-part"
                 value={newPartId}
@@ -472,25 +472,25 @@ function WorkOrderForm() {
               </select>
             </div>
             <div className="w-24">
-              <label htmlFor="new-line-qty" className="mb-1 block text-[11px] font-bold text-ink-700">Qty</label>
+              <label htmlFor="new-line-qty" className="mb-1 block text-xs font-bold text-ink-700">Qty</label>
               <input id="new-line-qty" type="number" min={1} value={newQty} onChange={(e) => setNewQty(e.target.value)} className="input" />
             </div>
             <div className="w-40">
-              <label htmlFor="new-line-ref" className="mb-1 block text-[11px] font-bold text-ink-700">Customer Ref</label>
+              <label htmlFor="new-line-ref" className="mb-1 block text-xs font-bold text-ink-700">Customer Ref</label>
               <input id="new-line-ref" value={newCustomerRef} onChange={(e) => setNewCustomerRef(e.target.value)} className="input" />
             </div>
             <div className="w-32">
-              <label htmlFor="new-line-price" className="mb-1 block text-[11px] font-bold text-ink-700">Customer Price (₹)</label>
+              <label htmlFor="new-line-price" className="mb-1 block text-xs font-bold text-ink-700">Customer Price (₹)</label>
               <input id="new-line-price" type="number" min={0} step="any" value={newCustomerPrice} onChange={(e) => setNewCustomerPrice(e.target.value)} className="input" />
             </div>
             <div className="min-w-[160px] flex-1">
-              <label htmlFor="new-line-remarks" className="mb-1 block text-[11px] font-bold text-ink-700">Remarks</label>
+              <label htmlFor="new-line-remarks" className="mb-1 block text-xs font-bold text-ink-700">Remarks</label>
               <input id="new-line-remarks" value={newRemarks} onChange={(e) => setNewRemarks(e.target.value)} className="input" />
             </div>
             <button onClick={addLine} disabled={!newPartId || !newQty} className="btn-primary">+ Add Line</button>
           </div>
           {selectedNewPart && (
-            <div className="mt-2 flex gap-4 text-[11px] text-ink-700">
+            <div className="mt-2 flex gap-4 text-xs text-ink-700">
               <span>UOM: <b>{selectedNewPart.uom}</b></span>
               <span>Weight: <b>{selectedNewPart.standard_weight_kg} kg</b></span>
               <span>Category: <b>{categoryName(selectedNewPart.category_id)}</b></span>
@@ -525,16 +525,16 @@ function WorkOrderForm() {
             )}
             <Field label="Additional Notes">
               <ol className="mb-2 flex flex-col gap-1.5">
-                {notes.length === 0 && <li className="text-xs text-ink-300">No notes yet — add each point separately.</li>}
+                {notes.length === 0 && <li className="text-xs text-ink-500">No notes yet — add each point separately.</li>}
                 {notes.map((n, i) => (
                   <li key={i} className="flex items-start gap-2 rounded-md border border-kraft-200 bg-kraft-50 px-2.5 py-1.5 text-[12.5px]">
-                    <span className="mt-px font-mono text-[11px] font-bold text-ink-500">{i + 1}.</span>
+                    <span className="mt-px font-mono text-xs font-bold text-ink-500">{i + 1}.</span>
                     <span className="flex-1 break-words">{n}</span>
                     <button
                       type="button"
                       onClick={() => setNotes((ns) => ns.filter((_, j) => j !== i))}
                       aria-label={`Remove note ${i + 1}`}
-                      className="text-ink-300 hover:text-rose-600"
+                      className="text-ink-500 hover:text-rose-600"
                     >
                       ✕
                     </button>
@@ -558,20 +558,20 @@ function WorkOrderForm() {
                   <li key={a.id} className="flex items-center gap-2 rounded-md border border-kraft-200 bg-kraft-50 px-2.5 py-1.5 text-[12.5px]">
                     <span className="flex-1 break-all">{a.file_name} <span className="text-ink-500">· saved</span></span>
                     <button type="button" onClick={async () => { const err = await openSalesFile(a.storage_key); if (err) setError(err); }} className="font-bold text-forest-800 hover:underline">Open</button>
-                    <button type="button" onClick={() => removeSavedSalesFile(a)} aria-label={`Remove ${a.file_name}`} className="text-ink-300 hover:text-rose-600">✕</button>
+                    <button type="button" onClick={() => removeSavedSalesFile(a)} aria-label={`Remove ${a.file_name}`} className="text-ink-500 hover:text-rose-600">✕</button>
                   </li>
                 ))}
                 {salesFiles.map((f, i) => (
                   <li key={`${f.name}-${i}`} className="flex items-center gap-2 rounded-md border border-dashed border-kraft-300 bg-white px-2.5 py-1.5 text-[12.5px]">
                     <span className="flex-1 break-all">{f.name} <span className="text-ink-500">· uploads when you save</span></span>
-                    <button type="button" onClick={() => setSalesFiles((cur) => cur.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`} className="text-ink-300 hover:text-rose-600">✕</button>
+                    <button type="button" onClick={() => setSalesFiles((cur) => cur.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`} className="text-ink-500 hover:text-rose-600">✕</button>
                   </li>
                 ))}
-                {savedSalesFiles.length === 0 && salesFiles.length === 0 && <li className="text-xs text-ink-300">No file attached yet.</li>}
+                {savedSalesFiles.length === 0 && salesFiles.length === 0 && <li className="text-xs text-ink-500">No file attached yet.</li>}
               </ul>
               <input type="file" accept={SALES_ACCEPT} multiple onChange={pickSalesFiles}
                 className="block w-full text-xs text-ink-700 file:mr-3 file:rounded-md file:border file:border-kraft-300 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-forest-800 hover:file:bg-kraft-50" />
-              <div className="mt-1 text-[10px] text-ink-300">PDF or JPG, up to 10 MB each. Stored with the order when you save; only Creator, MD, Admin and Finance can open it.</div>
+              <div className="mt-1 text-xs text-ink-500">PDF or JPG, up to 10 MB each. Stored with the order when you save; only Creator, MD, Admin and Finance can open it.</div>
             </Field>
           </div>
           <div className="flex flex-col gap-3">
@@ -594,7 +594,7 @@ function WorkOrderForm() {
           ) : (
             <button onClick={saveDraft} disabled={saving || !!editBlocked} className="btn-secondary">{saving ? 'Saving…' : 'Save Draft'}</button>
           )}
-          {message && <span className="text-xs font-bold text-emerald-600">✓ {message}</span>}
+          {message && <span className="text-xs font-bold text-emerald-700">✓ {message}</span>}
         </div>
         {editing?.status === 'pending_finance_approval' ? (
           <button onClick={saveChanges} disabled={saving || !!editBlocked} className="btn-primary">{saving ? 'Saving…' : 'Save Changes'}</button>
@@ -612,7 +612,7 @@ function WorkOrderForm() {
 function Tile({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-kraft-200 bg-kraft-50 px-3 py-3">
-      <div className="text-[10px] font-bold text-ink-500">{label}</div>
+      <div className="text-xs font-bold text-ink-500">{label}</div>
       <div className="font-mono text-lg font-bold text-forest-900">{value}</div>
     </div>
   );

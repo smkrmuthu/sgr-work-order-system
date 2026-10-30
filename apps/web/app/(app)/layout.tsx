@@ -130,7 +130,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col gap-4">
       {groups.map((g) => (
         <div key={g.title}>
-          <div className="mb-1 px-3 text-[10px] font-bold uppercase tracking-widest text-forest-400">{g.title}</div>
+          <div className="mb-1 px-3 text-[11px] font-bold uppercase tracking-widest text-forest-300">{g.title}</div>
           <div className="flex flex-col gap-0.5">
             {g.items.map((n) => (
               <Link key={n.href} href={n.href}
@@ -139,7 +139,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 }`}>
                 <NavIcon name={n.icon} />
                 <span className="flex-1">{n.label}</span>
-                {n.href === '/rejections' && pendingRej > 0 && <span className="rounded-full bg-amber-400 px-1.5 py-px text-[10px] font-bold text-forest-950">{pendingRej}</span>}
+                {n.href === '/rejections' && pendingRej > 0 && <span className="rounded-full bg-amber-400 px-1.5 py-px text-xs font-bold text-forest-950">{pendingRej}</span>}
               </Link>
             ))}
           </div>
@@ -174,7 +174,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <div className="text-xs sm:text-sm font-bold leading-tight">
                 SGR Moulds India <span className="font-semibold text-forest-300 hidden xs:inline">PVT LTD</span>
               </div>
-              <div className="text-[9px] sm:text-[10px] tracking-wide text-forest-300 leading-tight">
+              <div className="text-xs sm:text-xs tracking-wide text-forest-300 leading-tight">
                 Work Order Management
               </div>
             </div>
@@ -184,15 +184,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2">
             {/* User Pill */}
             <div className="flex items-center gap-1.5 sm:gap-2 rounded-full border border-forest-600 bg-forest-800 py-1 pl-2.5 sm:pl-3 pr-1">
-              <span className="text-[9px] sm:text-[10px] font-bold tracking-wide text-forest-100 hidden md:inline max-w-[150px] truncate">
+              <span className="text-xs sm:text-xs font-bold tracking-wide text-forest-100 hidden md:inline max-w-[150px] truncate">
                 {ROLE_LABEL[role]}
               </span>
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-kraft-300 text-[11px] font-bold text-kraft-900 shrink-0">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-kraft-300 text-xs font-bold text-kraft-900 shrink-0">
                 {initials}
               </span>
               <button
                 onClick={() => supabase.auth.signOut()}
-                className="hidden sm:inline-block rounded-full px-2 py-0.5 text-[10px] font-bold text-forest-300 hover:text-white transition-colors"
+                className="hidden sm:inline-block rounded-full px-2 py-0.5 text-xs font-bold text-forest-300 hover:text-white transition-colors"
               >
                 Sign out
               </button>

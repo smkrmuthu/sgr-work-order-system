@@ -110,7 +110,7 @@ export default function ProductionDashboard() {
                   </td>
                   <td className="px-3 py-2">{r.partner ? `${r.partner.code} — ${r.partner.name}` : '—'}</td>
                   <td className={`px-3 py-2 ${late ? 'font-bold text-rose-700' : ''}`}>
-                    {r.delivery_date ?? '—'}{late && <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 text-[10px]">overdue</span>}
+                    {r.delivery_date ?? '—'}{late && <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 text-xs">overdue</span>}
                   </td>
                   <td className="px-3 py-2 text-right font-mono">{r.ordered.toLocaleString('en-IN')}</td>
                   <td className="px-3 py-2 text-right font-mono">{r.produced.toLocaleString('en-IN')}</td>
@@ -124,10 +124,10 @@ export default function ProductionDashboard() {
                     </div>
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_BADGE_CLASS[r.status]}`}>{STATUS_LABEL[r.status]}</span>
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${STATUS_BADGE_CLASS[r.status]}`}>{STATUS_LABEL[r.status]}</span>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <Link href={`/planner?id=${r.id}`} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50">
+                    <Link href={`/planner?id=${r.id}`} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-xs font-bold text-forest-800 hover:bg-kraft-50">
                       Open in Planner
                     </Link>
                   </td>
@@ -137,7 +137,7 @@ export default function ProductionDashboard() {
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-ink-500">Progress bar: light = produced, dark = QC approved, out of the ordered quantity.</p>
+      <p className="text-xs text-ink-500">Progress bar: light = produced, dark = QC approved, out of the ordered quantity.</p>
     </div>
   );
 }

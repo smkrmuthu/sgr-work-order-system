@@ -130,7 +130,7 @@ export default function BackupPage() {
           <div>
             <div className="flex items-center justify-between">
               <span className="text-2xl">📦</span>
-              <span className="rounded bg-forest-100 text-forest-800 font-mono text-[10px] font-bold px-2 py-0.5">
+              <span className="rounded bg-forest-100 text-forest-800 font-mono text-xs font-bold px-2 py-0.5">
                 .SQL SCRIPT
               </span>
             </div>
@@ -159,7 +159,7 @@ export default function BackupPage() {
           <div>
             <div className="flex items-center justify-between">
               <span className="text-2xl">🗄️</span>
-              <span className="rounded bg-kraft-100 text-kraft-900 font-mono text-[10px] font-bold px-2 py-0.5">
+              <span className="rounded bg-kraft-100 text-kraft-900 font-mono text-xs font-bold px-2 py-0.5">
                 .JSON ARCHIVE
               </span>
             </div>
@@ -191,7 +191,7 @@ export default function BackupPage() {
           <div>
             <h3 className="text-sm font-bold text-violet-950">Automated 2-Day Scheduled Backup Active</h3>
             <p className="mt-1 text-xs text-violet-800 leading-relaxed">
-              In addition to manual on-demand downloads, the automated backup workflow triggers every <strong>2 days at 00:00 UTC</strong> (<code className="font-mono text-[11px] bg-violet-100 px-1.5 py-0.5 rounded">0 0 */2 * *</code>). Each backup snapshot is automatically generated and safely archived.
+              In addition to manual on-demand downloads, the automated backup workflow triggers every <strong>2 days at 00:00 UTC</strong> (<code className="font-mono text-xs bg-violet-100 px-1.5 py-0.5 rounded">0 0 */2 * *</code>). Each backup snapshot is automatically generated and safely archived.
             </p>
           </div>
         </div>
@@ -204,7 +204,7 @@ export default function BackupPage() {
             <h2 className="text-sm font-bold text-forest-900 uppercase tracking-wide">
               📋 Live Database Schema Status (<code className="font-mono text-forest-800">app</code> schema)
             </h2>
-            <p className="text-[11px] text-ink-500">Summary of all tables included in the backup dump.</p>
+            <p className="text-xs text-ink-500">Summary of all tables included in the backup dump.</p>
           </div>
           <div className="text-xs font-bold text-ink-700">
             Total Records: <span className="font-mono text-forest-900">{backupData?.metadata.total_records ?? 0}</span>
@@ -225,7 +225,7 @@ export default function BackupPage() {
                   <span className="font-mono text-ink-800 font-medium truncate max-w-[160px]">
                     app.{table}
                   </span>
-                  <span className={`font-mono font-bold px-1.5 py-0.5 rounded text-[11px] ${count > 0 ? 'bg-forest-100 text-forest-900' : 'bg-ink-100 text-ink-500'}`}>
+                  <span className={`font-mono font-bold px-1.5 py-0.5 rounded text-xs ${count > 0 ? 'bg-forest-100 text-forest-900' : 'bg-ink-100 text-ink-500'}`}>
                     {count} {count === 1 ? 'row' : 'rows'}
                   </span>
                 </div>
@@ -242,19 +242,19 @@ export default function BackupPage() {
         </h2>
         <div className="mt-3.5 space-y-3 text-xs text-ink-700 leading-relaxed">
           <div className="flex items-start gap-2.5">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-forest-800 text-[10px] font-bold text-white">1</span>
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-forest-800 text-xs font-bold text-white">1</span>
             <div>
               <strong>Setup Clean PostgreSQL / Supabase Project:</strong> If rebuilding on a new project, execute all migration SQL files in <code className="font-mono bg-kraft-100 px-1 py-0.5 rounded">db/migrations/</code> (from <code className="font-mono">001_schema.sql</code> to the highest-numbered file in that folder).
             </div>
           </div>
           <div className="flex items-start gap-2.5">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-forest-800 text-[10px] font-bold text-white">2</span>
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-forest-800 text-xs font-bold text-white">2</span>
             <div>
               <strong>Execute the Downloaded Rebuild Script:</strong> Paste the contents of your downloaded <code className="font-mono bg-kraft-100 px-1 py-0.5 rounded">sgr_db_rebuild_YYYY-MM-DD.sql</code> into the Supabase SQL Editor (or execute via psql). It will cleanly insert all business records with disabled triggers and restore all work order histories.
             </div>
           </div>
           <div className="flex items-start gap-2.5">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-forest-800 text-[10px] font-bold text-white">3</span>
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-forest-800 text-xs font-bold text-white">3</span>
             <div>
               <strong>Deploy the Edge Function:</strong> Run <code className="font-mono bg-kraft-100 px-1 py-0.5 rounded">supabase functions deploy manage-app-users</code> to enable user management.
             </div>

@@ -203,7 +203,7 @@ export default function QcPage() {
                   ) : null;
                 })()}
                 <div className="mt-3">
-                  <label htmlFor="qc-attach-files" className="mb-1 block text-[11px] font-bold text-ink-700">
+                  <label htmlFor="qc-attach-files" className="mb-1 block text-xs font-bold text-ink-700">
                     Attach files <span className="font-normal text-ink-500">(reports, certificates, scans — max {QC_MAX_BYTES / 1048576} MB each)</span>
                   </label>
                   <input
@@ -218,8 +218,8 @@ export default function QcPage() {
                     <ul className="mt-2 flex flex-col gap-1">
                       {files.map((f) => (
                         <li key={f.name + f.size} className="flex items-center justify-between rounded-md border border-kraft-200 bg-white px-2.5 py-1 text-xs">
-                          <span className="truncate">{f.name} <span className="text-ink-300">· {(f.size / 1024).toFixed(0)} KB</span></span>
-                          <button type="button" onClick={() => setFiles((fs) => fs.filter((x) => x !== f))} aria-label={`Remove ${f.name}`} className="ml-2 text-ink-300 hover:text-rose-600">✕</button>
+                          <span className="truncate">{f.name} <span className="text-ink-500">· {(f.size / 1024).toFixed(0)} KB</span></span>
+                          <button type="button" onClick={() => setFiles((fs) => fs.filter((x) => x !== f))} aria-label={`Remove ${f.name}`} className="ml-2 text-ink-500 hover:text-rose-600">✕</button>
                         </li>
                       ))}
                     </ul>

@@ -6,6 +6,7 @@ import { useLiveRefresh } from '@/lib/useLiveRefresh';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { canSeePrices } from '@/lib/priceAccess';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 // Ready for Dispatch = a Delivery Challan exists and the goods have not left yet. Marking it dispatched takes it off
 // this list; when every required unit is on a challan and every challan is dispatched, the Work Order completes
@@ -27,6 +28,7 @@ const inr = (n: number) => `₹${Number(n).toLocaleString('en-IN', { maximumFrac
 
 export default function DispatchPage() {
   const { profile } = useAuth();
+  const askConfirm = useConfirm();
   const canDispatch = profile?.role === 'md' || profile?.role === 'admin';
   const [waiting, setWaiting] = useState<InvoiceRow[] | null>(null);
   const [done, setDone] = useState<InvoiceRow[]>([]);
@@ -47,7 +49,7 @@ export default function DispatchPage() {
   useLiveRefresh(['work_orders', 'work_order_lines', 'qc_inspections', 'qc_rejections', 'invoices', 'invoice_lines'], load);
 
   async function dispatch(r: InvoiceRow) {
-    if (!confirm(`Mark Delivery Challan ${r.invoice_number} as dispatched?\n\nThis records that the goods have left. It can't be undone.`)) return;
+    if (!(await askConfirm({ title: `Mark ${r.invoice_number} as dispatched?`, message: "This records that the goods have left. It can't be undone.", confirmLabel: 'Mark dispatched' }))) return;
     setBusyId(r.id); setError('');
     const { error } = await supabase.rpc('mark_invoice_dispatched', { p_invoice_id: r.id });
     setBusyId(null);

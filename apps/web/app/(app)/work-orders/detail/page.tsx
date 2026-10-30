@@ -16,6 +16,7 @@ import type {
   ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment, StatusHistoryEntry, SalesPerson, WorkOrderLinePrice, CompletionDateChange,
 } from '@sgr/types';
 import Field from '@/components/Field';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface LineWithProgress extends WorkOrderLine {
   customer_price: number | null; // from work_order_line_prices; stays null for roles the database won't show it to
@@ -41,6 +42,7 @@ function WorkOrderDetail() {
   const wantsEdit = params.get('edit') === '1';
   const autoEdited = useRef(false);
   const { profile } = useAuth();
+  const askConfirm = useConfirm();
   const isMd = profile?.role === 'md' || profile?.role === 'admin';
   // What the customer is charged: Creator, MD, Admin and Finance only (hidden for Planner / QC).
   const canSeeCustomerPrice = ['creator', 'md', 'admin', 'finance'].includes(profile?.role ?? '');
@@ -287,15 +289,15 @@ function WorkOrderDetail() {
             <div className="text-xs text-ink-500">{partner ? `${partner.code} — ${partner.name}` : '—'} · {location?.label ?? '—'}</div>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_BADGE_CLASS[wo.status]}`}>{STATUS_LABEL[wo.status]}</span>
-            <span className="rounded-full border border-forest-100 bg-forest-50 px-2 py-0.5 font-mono text-[11px] font-bold text-forest-800">REVISION R{wo.revision}</span>
+            <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${STATUS_BADGE_CLASS[wo.status]}`}>{STATUS_LABEL[wo.status]}</span>
+            <span className="rounded-full border border-forest-100 bg-forest-50 px-2 py-0.5 font-mono text-xs font-bold text-forest-800">REVISION R{wo.revision}</span>
           </div>
         </div>
         <div className="p-5">
           <div className="mb-4 flex flex-wrap items-center gap-0 overflow-x-auto">
             {STATUS_ORDER.map((s, i) => (
               <div key={s} className="flex items-center gap-1">
-                <div className={`flex items-center gap-1.5 text-[10px] font-bold ${i <= statusIdx ? 'text-forest-800' : 'text-ink-300'}`}>
+                <div className={`flex items-center gap-1.5 text-xs font-bold ${i <= statusIdx ? 'text-forest-800' : 'text-ink-500'}`}>
                   <span className={`flex h-5 w-5 items-center justify-center rounded-full ${i <= statusIdx ? 'bg-forest-600 text-white' : 'bg-ink-100 text-ink-500'}`}>{i + 1}</span>
                   {STATUS_LABEL[s]}
                 </div>
@@ -401,7 +403,7 @@ function WorkOrderDetail() {
                       className="input flex-1"
                     />
                     <button
-                      onClick={() => { if (confirm(`Cancel Work Order ${wo.wo_number ?? ''}? This can't be undone.`)) cancelWo(); }}
+                      onClick={async () => { if (await askConfirm({ title: `Cancel Work Order ${wo.wo_number ?? ''}?`, message: "This can't be undone.", confirmLabel: 'Cancel Work Order', cancelLabel: 'Keep order', danger: true })) cancelWo(); }}
                       disabled={cancelBusy}
                       className="whitespace-nowrap rounded-md bg-rose-700 px-4 py-2 text-xs font-bold text-white hover:bg-rose-800 disabled:opacity-50"
                     >
@@ -434,8 +436,8 @@ function WorkOrderDetail() {
                 <tr key={l.id} className="border-t border-kraft-100">
                   <td className="px-2 py-2 font-mono font-bold">
                     {l.part_no_snapshot}
-                    {l.replaces_line_id && <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-px font-sans text-[10px] text-blue-800">Re-produce</span>}
-                    {l.short_closed_qty > 0 && <span className="ml-2 rounded-full bg-rose-100 px-1.5 py-px font-sans text-[10px] text-rose-800">{l.short_closed_qty} written off</span>}
+                    {l.replaces_line_id && <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-px font-sans text-xs text-blue-800">Re-produce</span>}
+                    {l.short_closed_qty > 0 && <span className="ml-2 rounded-full bg-rose-100 px-1.5 py-px font-sans text-xs text-rose-800">{l.short_closed_qty} written off</span>}
                   </td>
                   <td className="px-2 py-2">{l.description_snapshot}</td>
                   <td className="px-2 py-2 font-mono">{l.customer_ref || '—'}</td>
@@ -464,7 +466,7 @@ function WorkOrderDetail() {
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t-2 border-kraft-300 bg-kraft-50 font-mono text-[11px] font-bold">
+              <tr className="border-t-2 border-kraft-300 bg-kraft-50 font-mono text-xs font-bold">
                 <td className="px-2 py-2" colSpan={3}>TOTALS</td>
                 <td className="px-2 py-2">{orderedTotal}</td>
                 <td className="px-2 py-2">{producedTotal}</td>
@@ -489,13 +491,13 @@ function WorkOrderDetail() {
                 <li key={f.id} className="flex items-center justify-between rounded-md border border-kraft-200 bg-kraft-50 px-3 py-1.5 text-[13px]">
                   <span className="min-w-0 truncate">
                     {f.file_name}
-                    <span className="ml-2 text-[11px] text-ink-500">
+                    <span className="ml-2 text-xs text-ink-500">
                       {users[f.uploaded_by ?? '']?.email ?? '—'} · {new Date(f.uploaded_at).toLocaleString('en-GB')}
                     </span>
                   </span>
                   <button
                     onClick={async () => setFileError((await openQcFile(f.storage_key)) ?? '')}
-                    className="ml-3 shrink-0 rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50"
+                    className="ml-3 shrink-0 rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-xs font-bold text-forest-800 hover:bg-kraft-50"
                   >
                     Open
                   </button>
@@ -516,7 +518,7 @@ function WorkOrderDetail() {
         </div>
         {wo.transport_notes && (
           <div className="border-t border-kraft-100 px-5 py-3">
-            <div className="text-[11px] font-semibold text-ink-500">Special Instructions</div>
+            <div className="text-xs font-semibold text-ink-500">Special Instructions</div>
             <div className="whitespace-pre-wrap text-[13px]">{wo.transport_notes}</div>
           </div>
         )}
@@ -559,7 +561,7 @@ function WorkOrderDetail() {
             {salesFiles.map((f) => (
               <li key={f.id} className="flex items-center justify-between rounded-md border border-kraft-200 bg-kraft-50 px-3 py-2 text-sm">
                 <span>{f.file_name} <span className="text-xs text-ink-500">· {users[f.uploaded_by ?? '']?.email ?? ''} · {new Date(f.uploaded_at).toLocaleString('en-IN')}</span></span>
-                <button onClick={async () => { const err = await openSalesFile(f.storage_key); if (err) setError(err); }} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50">Open</button>
+                <button onClick={async () => { const err = await openSalesFile(f.storage_key); if (err) setError(err); }} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-xs font-bold text-forest-800 hover:bg-kraft-50">Open</button>
               </li>
             ))}
           </ul>
@@ -587,7 +589,7 @@ function WorkOrderDetail() {
           <ol className="flex flex-col gap-1.5 p-5">
             {notes.map((n, i) => (
               <li key={n.id} className="flex items-start gap-2 text-[13px]">
-                <span className="mt-px font-mono text-[11px] font-bold text-ink-500">{i + 1}.</span>
+                <span className="mt-px font-mono text-xs font-bold text-ink-500">{i + 1}.</span>
                 <span className="break-words">{n.note}</span>
               </li>
             ))}
@@ -654,12 +656,12 @@ function WorkOrderDetail() {
                   <span>
                     <span className="font-mono font-bold">{inv.invoice_number}</span>
                     <span className="ml-3 text-ink-500">{new Date(inv.invoice_date).toLocaleDateString('en-GB')}</span>
-                    {inv.kind === 'invoice' && showPrices && <span className="ml-3 font-mono font-bold">₹{Number(inv.grand_total).toLocaleString('en-IN', { minimumFractionDigits: 2 })} <span className="font-sans text-[10px] font-normal text-ink-500">(earlier tax invoice)</span></span>}
-                    <span className={`ml-3 rounded-full border px-2 py-0.5 text-[10px] font-bold ${inv.dispatched_at ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
+                    {inv.kind === 'invoice' && showPrices && <span className="ml-3 font-mono font-bold">₹{Number(inv.grand_total).toLocaleString('en-IN', { minimumFractionDigits: 2 })} <span className="font-sans text-xs font-normal text-ink-500">(earlier tax invoice)</span></span>}
+                    <span className={`ml-3 rounded-full border px-2 py-0.5 text-xs font-bold ${inv.dispatched_at ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
                       {inv.dispatched_at ? 'Dispatched' : 'Ready for dispatch'}
                     </span>
                   </span>
-                  <Link href={`/invoice?id=${inv.id}`} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-[11px] font-bold text-forest-800 hover:bg-kraft-50">View / Print</Link>
+                  <Link href={`/invoice?id=${inv.id}`} className="rounded-md border border-kraft-300 bg-white px-2.5 py-1 text-xs font-bold text-forest-800 hover:bg-kraft-50">View / Print</Link>
                 </li>
               ))}
             </ul>
@@ -691,9 +693,9 @@ function WorkOrderDetail() {
 function Info({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div>
-      <div className="text-[11px] font-semibold text-ink-500">{label}</div>
+      <div className="text-xs font-semibold text-ink-500">{label}</div>
       <div className="text-sm font-bold">{value}</div>
-      {hint && <div className="text-[10px] text-ink-300">{hint}</div>}
+      {hint && <div className="text-xs text-ink-500">{hint}</div>}
     </div>
   );
 }

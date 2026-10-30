@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { STATUS_LABEL, STATUS_BADGE_CLASS } from '@/lib/statusLabels';
 import type { BusinessPartner, WorkOrder, WorkOrderLine } from '@sgr/types';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 // Finished Goods = QC-approved goods that are not on a delivery challan yet. The MD/Admin creates the Delivery
 // Challan here (quantities only: no price, no GST); the goods then move to "Ready for Dispatch". What is still to
@@ -21,6 +22,7 @@ const OPEN_STATUSES = ['in_production', 'qc_pending', 'partially_qc_approved', '
 
 export default function FinishedGoodsPage() {
   const { profile } = useAuth();
+  const askConfirm = useConfirm();
   const canBill = profile?.role === 'md' || profile?.role === 'admin';
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [error, setError] = useState('');
@@ -66,7 +68,7 @@ export default function FinishedGoodsPage() {
 
   async function createChallan(g: Group) {
     const units = g.lines.reduce((n, l) => n + l.toBill, 0);
-    if (!confirm(`Create a Delivery Challan for ${g.order.wo_number}?\n\n${g.lines.length} line(s) · ${units} unit(s).\n\nThe goods then move to Ready for Dispatch.`)) return;
+    if (!(await askConfirm({ title: `Create a Delivery Challan for ${g.order.wo_number}?`, message: `${g.lines.length} line(s) · ${units} unit(s).\n\nThe goods then move to Ready for Dispatch.`, confirmLabel: 'Create challan' }))) return;
     setBusyId(g.order.id); setError(''); setNotice(null);
     const { data, error } = await supabase.rpc('generate_challan', { p_work_order_id: g.order.id });
     setBusyId(null);
@@ -102,7 +104,7 @@ export default function FinishedGoodsPage() {
               <Link href={`/work-orders/detail?id=${g.order.id}`} className="font-mono text-sm font-bold text-forest-800 hover:underline">{g.order.wo_number}</Link>
               <div className="text-xs text-ink-500">{g.order.partner ? `${g.order.partner.code} — ${g.order.partner.name}` : '—'} · delivery {g.order.delivery_date ?? '—'}</div>
             </div>
-            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_BADGE_CLASS[g.order.status]}`}>{STATUS_LABEL[g.order.status]}</span>
+            <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${STATUS_BADGE_CLASS[g.order.status]}`}>{STATUS_LABEL[g.order.status]}</span>
           </div>
           <div className="overflow-x-auto p-5">
             <table className="w-full text-xs">
@@ -127,7 +129,7 @@ export default function FinishedGoodsPage() {
                 ))}
               </tbody>
               <tfoot>
-                <tr className="border-t-2 border-kraft-300 bg-kraft-50 font-mono text-[11px] font-bold">
+                <tr className="border-t-2 border-kraft-300 bg-kraft-50 font-mono text-xs font-bold">
                   <td className="px-2 py-2" colSpan={6}>TOTAL UNITS TO DELIVER</td>
                   <td className="px-2 py-2 text-right">{g.lines.reduce((n, l) => n + l.toBill, 0)}</td>
                 </tr>
