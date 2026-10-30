@@ -164,7 +164,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen flex-col bg-kraft-50">
       <header className="no-print bg-forest-900 text-white sticky top-0 z-40 shadow-sm">
         {/* Top bar */}
-        <div className="mx-auto flex h-14 sm:h-[60px] max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-7">
+        <div className="mx-auto flex h-14 sm:h-[60px] max-w-[1800px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-7">
           {/* Logo & Brand */}
           <Link href={homeFor(role)} className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg bg-white p-0.5 shrink-0">
@@ -231,7 +231,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <aside className="no-print sticky top-[60px] hidden h-[calc(100vh-60px)] w-60 shrink-0 overflow-y-auto border-r border-forest-800 bg-forest-900 px-3 py-4 md:block">
           {menu}
         </aside>
-        <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-3 sm:px-6 lg:px-7 py-4 sm:py-6">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-[1800px] flex-1 px-3 sm:px-6 lg:px-7 py-4 sm:py-6">{children}</main>
       </div>
     </div>
   );
