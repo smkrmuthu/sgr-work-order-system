@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import type { Category, Part, SalesPerson, Supervisor, QcRejectReason } from '@sgr/types';
+import Field from '@/components/Field';
 
 // Master Creator / MD / Admin (see NAV in the layout). The database enforces the same rule: the
 // master-data tables are writable only by those roles (db/migrations/002_rls.sql).
@@ -233,7 +234,7 @@ export default function ItemMasterPage() {
             className="w-full max-w-md rounded-md border border-kraft-300 px-3 py-2 text-sm outline-none focus:border-forest-500" />
 
           <div className="overflow-x-auto rounded-lg border border-kraft-200 bg-white">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
                 <tr>
                   <th className="px-3 py-2">Part #</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Category</th>
@@ -275,8 +276,8 @@ export default function ItemMasterPage() {
             <div className="mt-3 flex justify-end"><button onClick={addCategory} className="btn-primary">Add Category</button></div>
           </section>
 
-          <div className="overflow-hidden rounded-lg border border-kraft-200 bg-white">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-lg border border-kraft-200 bg-white">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
                 <tr><th className="px-3 py-2">Code</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Description</th><th className="px-3 py-2 text-center">Active</th></tr>
               </thead>
@@ -307,8 +308,8 @@ export default function ItemMasterPage() {
             <div className="mt-3 flex justify-end"><button onClick={addSalesPerson} className="btn-primary">Add Sales Person</button></div>
           </section>
 
-          <div className="overflow-hidden rounded-lg border border-kraft-200 bg-white">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-lg border border-kraft-200 bg-white">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
                 <tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">Phone</th><th className="px-3 py-2">Location</th><th className="px-3 py-2 text-center">Active</th></tr>
               </thead>
@@ -338,8 +339,8 @@ export default function ItemMasterPage() {
               <button onClick={addReason} className="btn-primary">Add Reason</button>
             </div>
           </section>
-          <div className="overflow-hidden rounded-lg border border-kraft-200 bg-white">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-lg border border-kraft-200 bg-white">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
                 <tr><th className="px-3 py-2">Reason</th><th className="px-3 py-2 text-center">Active</th></tr>
               </thead>
@@ -367,8 +368,8 @@ export default function ItemMasterPage() {
             <div className="mt-3 flex justify-end"><button onClick={addSupervisor} className="btn-primary">Add Supervisor</button></div>
           </section>
 
-          <div className="overflow-hidden rounded-lg border border-kraft-200 bg-white">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-lg border border-kraft-200 bg-white">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
                 <tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">Phone</th><th className="px-3 py-2 text-center">Active</th></tr>
               </thead>
@@ -386,15 +387,6 @@ export default function ItemMasterPage() {
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1 block text-[11px] font-bold text-ink-700">{label}</label>
-      {children}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { QC_ACCEPT, QC_MAX_BYTES, checkQcFile, uploadQcFile } from '@/lib/qcFiles';
 import { STATUS_LABEL } from '@/lib/statusLabels';
 import type { WorkOrder, WorkOrderLine, QcSubmission, QcInspection, QcRejectReason } from '@sgr/types';
+import Field from '@/components/Field';
 
 interface LineRow extends WorkOrderLine {
   sent: number;
@@ -202,10 +203,11 @@ export default function QcPage() {
                   ) : null;
                 })()}
                 <div className="mt-3">
-                  <label className="mb-1 block text-[11px] font-bold text-ink-700">
+                  <label htmlFor="qc-attach-files" className="mb-1 block text-[11px] font-bold text-ink-700">
                     Attach files <span className="font-normal text-ink-500">(reports, certificates, scans — max {QC_MAX_BYTES / 1048576} MB each)</span>
                   </label>
                   <input
+                    id="qc-attach-files"
                     type="file"
                     multiple
                     accept={QC_ACCEPT}
@@ -234,8 +236,4 @@ export default function QcPage() {
       )}
     </div>
   );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="mb-1 block text-[11px] font-bold text-ink-700">{label}</label>{children}</div>;
 }

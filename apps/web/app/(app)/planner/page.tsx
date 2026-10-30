@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { STATUS_LABEL } from '@/lib/statusLabels';
 import type { WorkOrder, WorkOrderLine, Shift, Supervisor, CompletionDateChange, ProductionOutputLine, QcSubmission, QcRejectReason } from '@sgr/types';
 import { todayLocal } from '@/lib/dates';
+import Field from '@/components/Field';
 
 interface LogEntry {
   id: string;
@@ -243,8 +244,8 @@ export default function PlannerPage() {
                   </div>
                   {selected.expected_completion_date && (
                     <div className="max-w-xl">
-                      <label className="mb-1 block text-[11px] font-bold text-ink-700">Reason for the change *</label>
-                      <input value={dateReason} onChange={(e) => setDateReason(e.target.value)} placeholder="Why is the completion date changing?" className="input" />
+                      <label htmlFor="date-reason" className="mb-1 block text-[11px] font-bold text-ink-700">Reason for the change *</label>
+                      <input id="date-reason" value={dateReason} onChange={(e) => setDateReason(e.target.value)} placeholder="Why is the completion date changing?" className="input" />
                     </div>
                   )}
                   <div className="flex gap-2">
@@ -361,15 +362,15 @@ export default function PlannerPage() {
                             {rejecting?.lineId === l.id ? (
                               <div className="mt-2 flex flex-wrap items-end gap-2">
                                 <div>
-                                  <label className="mb-1 block text-[11px] font-bold">Reason *</label>
-                                  <select value={rejecting.reasonId} onChange={(e) => setRejecting({ ...rejecting, reasonId: e.target.value })} className="input w-52">
+                                  <label htmlFor="reject-reason" className="mb-1 block text-[11px] font-bold">Reason *</label>
+                                  <select id="reject-reason" value={rejecting.reasonId} onChange={(e) => setRejecting({ ...rejecting, reasonId: e.target.value })} className="input w-52">
                                     <option value="">Select reason…</option>
                                     {reasons.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                                   </select>
                                 </div>
                                 <div className="min-w-[180px] flex-1">
-                                  <label className="mb-1 block text-[11px] font-bold">Comment</label>
-                                  <input value={rejecting.comment} onChange={(e) => setRejecting({ ...rejecting, comment: e.target.value })} className="input" />
+                                  <label htmlFor="reject-comment" className="mb-1 block text-[11px] font-bold">Comment</label>
+                                  <input id="reject-comment" value={rejecting.comment} onChange={(e) => setRejecting({ ...rejecting, comment: e.target.value })} className="input" />
                                 </div>
                                 <button onClick={() => rejectAtProduction(l)} className="btn-primary !bg-rose-700 hover:!bg-rose-800">Reject {v.qty} unit(s)</button>
                                 <button onClick={() => setRejecting(null)} className="btn-secondary">Cancel</button>
@@ -389,7 +390,7 @@ export default function PlannerPage() {
                 );
               })}
               <div className="mt-4 max-w-2xl">
-                <label className="mb-1 block text-[11px] font-bold text-ink-700">Shift Notes</label>
+                <label htmlFor="shift-note-input" className="mb-1 block text-[11px] font-bold text-ink-700">Shift Notes</label>
                 <ol className="mb-2 flex flex-col gap-1.5">
                   {shiftNotes.length === 0 && <li className="text-xs text-ink-300">No notes yet — add each point separately.</li>}
                   {shiftNotes.map((n, i) => (
@@ -401,7 +402,7 @@ export default function PlannerPage() {
                   ))}
                 </ol>
                 <div className="flex gap-2">
-                  <input value={noteInput} onChange={(e) => setNoteInput(e.target.value)} maxLength={500}
+                  <input id="shift-note-input" value={noteInput} onChange={(e) => setNoteInput(e.target.value)} maxLength={500}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addShiftNote(); } }}
                     placeholder="Type a note and press Enter" className="input" />
                   <button type="button" onClick={addShiftNote} disabled={!noteInput.trim()} className="btn-secondary whitespace-nowrap">+ Add note</button>
@@ -450,8 +451,4 @@ export default function PlannerPage() {
       )}
     </div>
   );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="mb-1 block text-[11px] font-bold text-ink-700">{label}</label>{children}</div>;
 }

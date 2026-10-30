@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { manageUsers } from '@/lib/manageUsers';
 import type { UserRole } from '@sgr/types';
+import Field from '@/components/Field';
 
 interface Row {
   id: string;
@@ -127,8 +128,8 @@ export default function UsersPage() {
         </section>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-kraft-200 bg-white">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-lg border border-kraft-200 bg-white">
+        <table className="w-full min-w-[640px] text-sm">
           <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
             <tr>
               <th className="px-3 py-2">Email</th>
@@ -201,15 +202,6 @@ export default function UsersPage() {
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1 block text-[11px] font-bold text-ink-700">{label}</label>
-      {children}
     </div>
   );
 }

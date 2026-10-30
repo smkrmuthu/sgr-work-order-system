@@ -15,6 +15,7 @@ import type {
   WorkOrder, WorkOrderLine, BusinessPartner, DeliveryLocation, WorkOrderRevision,
   ProductionOutputLine, QcInspection, Invoice, InvoiceLine, AppUser, FinanceApproval, WorkOrderNote, Attachment, StatusHistoryEntry, SalesPerson, WorkOrderLinePrice, CompletionDateChange,
 } from '@sgr/types';
+import Field from '@/components/Field';
 
 interface LineWithProgress extends WorkOrderLine {
   customer_price: number | null; // from work_order_line_prices; stays null for roles the database won't show it to
@@ -693,14 +694,6 @@ function Info({ label, value, hint }: { label: string; value: string; hint?: str
       <div className="text-[11px] font-semibold text-ink-500">{label}</div>
       <div className="text-sm font-bold">{value}</div>
       {hint && <div className="text-[10px] text-ink-300">{hint}</div>}
-    </div>
-  );
-}
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1 block text-[11px] font-bold text-ink-700">{label}</label>
-      {children}
     </div>
   );
 }

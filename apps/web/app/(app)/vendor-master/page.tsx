@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { BusinessPartner, DeliveryLocation, PartnerAddress, PartnerContact } from '@sgr/types';
+import Field from '@/components/Field';
 
 // Master Creator / MD / Admin (see NAV in the layout); the master-data tables are writable only by those
 // roles (db/migrations/002_rls.sql). The Work Order's Business Partner dropdown reads this list.
@@ -170,7 +171,7 @@ export default function VendorMasterPage() {
 
           <div className="mb-2 mt-5 text-sm font-bold text-forest-900">LOCATIONS &amp; ADDRESSES</div>
           {editingId !== 'new' && locsOf(editingId).length > 0 && (
-            <table className="mb-3 w-full text-sm">
+            <div className="mb-3 overflow-x-auto"><table className="w-full min-w-[420px] text-sm">
               <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
                 <tr><th className="px-3 py-2">Location</th><th className="px-3 py-2">Address</th><th className="px-3 py-2 text-center">Active</th></tr>
               </thead>
@@ -183,7 +184,7 @@ export default function VendorMasterPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label={editingId === 'new' ? 'Location' : 'Add another location'}>
@@ -244,15 +245,6 @@ export default function VendorMasterPage() {
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1 block text-[11px] font-bold text-ink-700">{label}</label>
-      {children}
     </div>
   );
 }

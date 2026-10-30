@@ -106,8 +106,8 @@ export default function WorkOrdersPage() {
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <div className="overflow-hidden rounded-lg border border-kraft-200 bg-white">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-lg border border-kraft-200 bg-white">
+        <table className="w-full min-w-[640px] text-sm">
           <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
             <tr>
               <th className="px-3 py-2">WO #</th>

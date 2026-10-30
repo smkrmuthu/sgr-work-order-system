@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { lineLengthM, fmtMeters, partLengthMm } from '@/lib/partLength';
 import { SALES_ACCEPT, checkSalesFile, uploadSalesFile, removeSalesFile, openSalesFile } from '@/lib/salesOrderFiles';
 import type { BusinessPartner, DeliveryLocation, Part, Category, SalesPerson, WorkOrder, Attachment } from '@sgr/types';
+import Field from '@/components/Field';
 
 interface LineRow {
   key: string;
@@ -417,8 +418,8 @@ function WorkOrderForm() {
           <div className="text-sm font-bold text-forest-900">B · LINE ITEMS</div>
           <div className="text-xs text-ink-500">Part # fills description, UOM, weight, category and price from the Part Master.</div>
         </div>
-        <div className="p-5">
-          <table className="w-full text-xs">
+        <div className="overflow-x-auto p-5">
+          <table className="w-full min-w-[640px] text-xs">
             <thead className="bg-kraft-100 text-left font-bold uppercase text-ink-900">
               <tr>
                 <th className="px-2 py-2">Part #</th><th className="px-2 py-2">Description</th><th className="px-2 py-2">Customer Ref</th><th className="px-2 py-2">Qty</th>
@@ -455,8 +456,9 @@ function WorkOrderForm() {
 
           <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-dashed border-kraft-300 bg-kraft-50 p-3">
             <div className="min-w-[220px] flex-1">
-              <label className="mb-1 block text-[11px] font-bold text-ink-700">Part #</label>
+              <label htmlFor="new-line-part" className="mb-1 block text-[11px] font-bold text-ink-700">Part #</label>
               <select
+                id="new-line-part"
                 value={newPartId}
                 onChange={(e) => {
                   setNewPartId(e.target.value);
@@ -470,20 +472,20 @@ function WorkOrderForm() {
               </select>
             </div>
             <div className="w-24">
-              <label className="mb-1 block text-[11px] font-bold text-ink-700">Qty</label>
-              <input type="number" min={1} value={newQty} onChange={(e) => setNewQty(e.target.value)} className="input" />
+              <label htmlFor="new-line-qty" className="mb-1 block text-[11px] font-bold text-ink-700">Qty</label>
+              <input id="new-line-qty" type="number" min={1} value={newQty} onChange={(e) => setNewQty(e.target.value)} className="input" />
             </div>
             <div className="w-40">
-              <label className="mb-1 block text-[11px] font-bold text-ink-700">Customer Ref</label>
-              <input value={newCustomerRef} onChange={(e) => setNewCustomerRef(e.target.value)} className="input" />
+              <label htmlFor="new-line-ref" className="mb-1 block text-[11px] font-bold text-ink-700">Customer Ref</label>
+              <input id="new-line-ref" value={newCustomerRef} onChange={(e) => setNewCustomerRef(e.target.value)} className="input" />
             </div>
             <div className="w-32">
-              <label className="mb-1 block text-[11px] font-bold text-ink-700">Customer Price (₹)</label>
-              <input type="number" min={0} step="any" value={newCustomerPrice} onChange={(e) => setNewCustomerPrice(e.target.value)} className="input" />
+              <label htmlFor="new-line-price" className="mb-1 block text-[11px] font-bold text-ink-700">Customer Price (₹)</label>
+              <input id="new-line-price" type="number" min={0} step="any" value={newCustomerPrice} onChange={(e) => setNewCustomerPrice(e.target.value)} className="input" />
             </div>
             <div className="min-w-[160px] flex-1">
-              <label className="mb-1 block text-[11px] font-bold text-ink-700">Remarks</label>
-              <input value={newRemarks} onChange={(e) => setNewRemarks(e.target.value)} className="input" />
+              <label htmlFor="new-line-remarks" className="mb-1 block text-[11px] font-bold text-ink-700">Remarks</label>
+              <input id="new-line-remarks" value={newRemarks} onChange={(e) => setNewRemarks(e.target.value)} className="input" />
             </div>
             <button onClick={addLine} disabled={!newPartId || !newQty} className="btn-primary">+ Add Line</button>
           </div>
@@ -606,14 +608,6 @@ function WorkOrderForm() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1 block text-[11px] font-bold text-ink-700">{label}</label>
-      {children}
-    </div>
-  );
-}
 
 function Tile({ label, value }: { label: string; value: string }) {
   return (

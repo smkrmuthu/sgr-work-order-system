@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { canSeePrices } from '@/lib/priceAccess';
 import type { QcRejection, QcRejectionDecision } from '@sgr/types';
 import { todayLocal } from '@/lib/dates';
+import Field from '@/components/Field';
 
 // Units QC (or the Planner, at production) rejected. Finance and the MD decide, per quantity:
 //   Scrap       the units are written off and can never be billed; the order needs that many fewer.
@@ -191,7 +192,4 @@ function RejectionCard({ r, canDecide, onError, onDone }: { r: Row; canDecide: b
 
 function Info({ label, value }: { label: string; value: string }) {
   return <div><div className="text-[11px] font-semibold text-ink-500">{label}</div><div className="text-sm font-bold">{value}</div></div>;
-}
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="mb-1 block text-[11px] font-bold text-ink-700">{label}</label>{children}</div>;
 }
