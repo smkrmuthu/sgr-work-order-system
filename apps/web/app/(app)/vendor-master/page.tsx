@@ -208,8 +208,12 @@ export default function VendorMasterPage() {
         className="w-full max-w-md rounded-md border border-kraft-300 px-3 py-2 text-sm outline-none focus:border-forest-500" />
 
       <div className="overflow-x-auto rounded-lg border border-kraft-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-kraft-100 text-left text-[11px] font-bold uppercase tracking-wide text-ink-900">
+        <table className="w-full min-w-[960px] table-fixed text-sm">
+          <colgroup>
+            <col className="w-[84px]" /><col className="w-[15%]" /><col /><col className="w-[12%]" />
+            <col className="w-[116px]" /><col className="w-[16%]" /><col className="w-[60px]" /><col className="w-[68px]" />
+          </colgroup>
+          <thead className="bg-kraft-100 text-left align-bottom text-[11px] font-bold uppercase tracking-wide text-ink-900">
             <tr>
               <th className="px-3 py-2">Code</th><th className="px-3 py-2">Business Partner / Client</th>
               <th className="px-3 py-2">Location / Address</th><th className="px-3 py-2">Contact Person</th>
@@ -226,7 +230,7 @@ export default function VendorMasterPage() {
               return (
                 <tr key={p.id} className={`border-t border-kraft-100 align-top ${p.is_active ? '' : 'opacity-50'}`}>
                   <td className="px-3 py-2 font-mono font-bold">{p.code}</td>
-                  <td className="px-3 py-2">{p.name}</td>
+                  <td className="break-words px-3 py-2">{p.name}</td>
                   <td className="px-3 py-2">
                     {locs.length === 0 ? '—' : locs.map((l) => (
                       <div key={l.id} className={l.is_active ? '' : 'opacity-50'}>
@@ -234,9 +238,9 @@ export default function VendorMasterPage() {
                       </div>
                     ))}
                   </td>
-                  <td className="px-3 py-2">{c?.name ?? '—'}</td>
-                  <td className="px-3 py-2">{c?.phone ?? '—'}</td>
-                  <td className="px-3 py-2">{c?.email ?? '—'}</td>
+                  <td className="break-words px-3 py-2">{c?.name ?? '—'}</td>
+                  <td className="break-words px-3 py-2">{c?.phone ?? '—'}</td>
+                  <td className="break-all px-3 py-2">{c?.email ?? '—'}</td>
                   <td className="px-3 py-2 text-center"><input type="checkbox" checked={p.is_active} onChange={() => toggleActive('business_partners', p.id, p.is_active)} /></td>
                   <td className="px-3 py-2 text-right"><button onClick={() => startEdit(p)} className="btn-secondary !px-2 !py-1">Edit</button></td>
                 </tr>
