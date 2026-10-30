@@ -8,6 +8,7 @@ import { lineLengthM, fmtMeters, partLengthMm } from '@/lib/partLength';
 import { SALES_ACCEPT, checkSalesFile, uploadSalesFile, removeSalesFile, openSalesFile } from '@/lib/salesOrderFiles';
 import type { BusinessPartner, DeliveryLocation, Part, Category, SalesPerson, WorkOrder, Attachment } from '@sgr/types';
 import Field from '@/components/Field';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface LineRow {
   key: string;
@@ -33,6 +34,7 @@ function WorkOrderForm() {
   const router = useRouter();
   const editId = useSearchParams().get('id');
   const { profile } = useAuth();
+  const askConfirm = useConfirm();
   const [editing, setEditing] = useState<WorkOrder | null>(null);
   const [rejection, setRejection] = useState('');
   const [editBlocked, setEditBlocked] = useState('');
@@ -558,13 +560,13 @@ function WorkOrderForm() {
                   <li key={a.id} className="flex items-center gap-2 rounded-md border border-kraft-200 bg-kraft-50 px-2.5 py-1.5 text-[12.5px]">
                     <span className="flex-1 break-all">{a.file_name} <span className="text-ink-500">· saved</span></span>
                     <button type="button" onClick={async () => { const err = await openSalesFile(a.storage_key); if (err) setError(err); }} className="font-bold text-forest-800 hover:underline">Open</button>
-                    <button type="button" onClick={() => removeSavedSalesFile(a)} aria-label={`Remove ${a.file_name}`} className="text-ink-500 hover:text-rose-600">✕</button>
+                    <button type="button" onClick={async () => { if (await askConfirm({ title: 'Delete this file?', message: `${a.file_name}\n\nIt is removed from the order permanently.`, confirmLabel: 'Delete file', danger: true })) removeSavedSalesFile(a); }} aria-label={`Delete ${a.file_name}`} className="font-bold text-rose-700 hover:underline">Delete</button>
                   </li>
                 ))}
                 {salesFiles.map((f, i) => (
                   <li key={`${f.name}-${i}`} className="flex items-center gap-2 rounded-md border border-dashed border-kraft-300 bg-white px-2.5 py-1.5 text-[12.5px]">
                     <span className="flex-1 break-all">{f.name} <span className="text-ink-500">· uploads when you save</span></span>
-                    <button type="button" onClick={() => setSalesFiles((cur) => cur.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`} className="text-ink-500 hover:text-rose-600">✕</button>
+                    <button type="button" onClick={() => setSalesFiles((cur) => cur.filter((_, j) => j !== i))} aria-label={`Delete ${f.name}`} className="font-bold text-rose-700 hover:underline">Delete</button>
                   </li>
                 ))}
                 {savedSalesFiles.length === 0 && salesFiles.length === 0 && <li className="text-xs text-ink-500">No file attached yet.</li>}
